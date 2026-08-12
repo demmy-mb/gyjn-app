@@ -60,7 +60,8 @@
           "project": "jinni",
           "organization": "kodex-ub"
         }
-      ]
+      ],
+      "@didit-protocol/sdk-react-native"
     ]
   }
 }

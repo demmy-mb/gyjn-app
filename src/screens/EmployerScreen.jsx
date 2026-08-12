@@ -4,7 +4,7 @@ import React, {
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   TextInput, ScrollView, ActivityIndicator, Platform,
-  KeyboardAvoidingView, Alert, NativeModules
+  KeyboardAvoidingView, Alert, NativeModules, Image
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -13,7 +13,7 @@ import BottomSheet, { BottomSheetView, BottomSheetBackdrop, BottomSheetScrollVie
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { C } from '../lib/theme';
-import { getBackendUrl } from '../lib/config';
+import { getBackendUrl, getOptimizedImageUrl, getJobImageUrl } from '../lib/config';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Sentry from '@sentry/react-native';
 import { ICON_MAP, ICON_OPTIONS } from '../lib/icons';
@@ -51,6 +51,7 @@ function OverviewCard({ value, label, subtext }) {
 const JobCard = React.memo(function JobCard({ item, onPress }) {
   const matchCount = item.match_count ?? 0;
   const swipeCount = item.swipe_count ?? 0;
+  const imageUrl = getJobImageUrl(item);
   
   // Default values matching standard design in candidate swiper
   const emojiVal = item.emoji || 'briefcase';
@@ -62,6 +63,25 @@ const JobCard = React.memo(function JobCard({ item, onPress }) {
 
   return (
     <TouchableOpacity style={styles.card} activeOpacity={0.9} onPress={onPress}>
+      {/* Cover Image Header if present */}
+      {imageUrl ? (
+        <View style={[styles.cardCoverHeader, { borderRadius: 16 }]}>
+          <LinearGradient
+            colors={[lightBgColor, darkColor]}
+            style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]}
+          />
+          <Image 
+            source={{ uri: imageUrl }} 
+            style={[StyleSheet.absoluteFillObject, { width: '100%', height: '100%', borderRadius: 16 }]} 
+            resizeMode="cover" 
+          />
+          <LinearGradient
+            colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.45)']}
+            style={[StyleSheet.absoluteFillObject, { borderRadius: 16 }]}
+          />
+        </View>
+      ) : null}
+
       {/* Upper row: logo, role title, and status */}
       <View style={styles.cardHeaderRow}>
         <View style={[styles.cardLogoBox, { backgroundColor: lightBgColor }]}>
@@ -835,6 +855,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 10,
     elevation: 3,
+    overflow: 'hidden',
+  },
+  cardCoverHeader: {
+    height: 90,
+    marginBottom: 14,
+    marginHorizontal: -18,
+    marginTop: -18,
+    position: 'relative',
   },
   cardHeaderRow: {
     flexDirection: 'row',

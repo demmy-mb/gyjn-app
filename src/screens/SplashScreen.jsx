@@ -116,7 +116,7 @@ export default function SplashScreen({ navigation }) {
 
   useEffect(() => {
     // Initial entrance animations
-    iconScale.value = withTiming(1, { duration: 1200, easing: Easing.out(Easing.exp) });
+    iconScale.value = withTiming(1, { duration: 1200, easing: Easing.out(Easing.quad) });
     iconOpacity.value = withTiming(1, { duration: 1000 });
     
     // Fade in Welcome to Jinni text after logo has completely settled

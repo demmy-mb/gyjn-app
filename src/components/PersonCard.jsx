@@ -1,6 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Dimensions } from 'react-native';
-import { Image } from 'expo-image';
+import { View, Text, StyleSheet, Dimensions, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const { width } = Dimensions.get('window');
@@ -12,8 +11,7 @@ const PersonCard = React.memo(function PersonCard({ person }) {
         <Image 
           source={{ uri: person.image || 'https://via.placeholder.com/400x500?text=Profile+Image' }} 
           style={styles.image}
-          contentFit="cover"
-          transition={200}
+          resizeMode="cover"
         />
         <LinearGradient 
           colors={['transparent', 'rgba(0,0,0,0.7)']} 

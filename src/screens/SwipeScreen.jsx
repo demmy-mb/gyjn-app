@@ -3,10 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, Modal, Pressable, Dimensions, Platform, NativeModules,
-  ActivityIndicator, Alert, Image,
+  ActivityIndicator, Alert, Image
 } from 'react-native';
 import BottomSheet, { BottomSheetBackdrop, BottomSheetScrollView } from '@gorhom/bottom-sheet';
-import { getBackendUrl } from '../lib/config';
+import { getBackendUrl, getOptimizedImageUrl, getJobImageUrl } from '../lib/config';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue, useAnimatedStyle, withSpring, withTiming,
@@ -141,6 +141,8 @@ const getNotifStyle = (type) => {
 function JobCard({ job, onPress, isTop }) {
   const { colors, typography, radii, shadows } = useTheme();
   const bgColors = job.colors && job.colors.length >= 2 ? job.colors : [colors.brand.orange, colors.brand.mango];
+  const imageUrl = getJobImageUrl(job);
+  const hasImage = Boolean(imageUrl);
 
   return (
     <BounceButton 
@@ -160,23 +162,52 @@ function JobCard({ job, onPress, isTop }) {
           borderColor: colors.border.light,
         }
       ]}>
-        <LinearGradient
-          colors={bgColors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.cardTop}
-        >
-          <View style={styles.cardLogoWrap}>
-            <View style={[styles.cardLogoBox, { borderRadius: radii.xl }]}>
-              {(() => {
-                const emojiVal = job.emoji || 'briefcase';
-                const iconData = ICON_MAP[emojiVal] || ICON_MAP['briefcase'];
-                const IconComp = iconData.fam;
-                return <IconComp name={iconData.name} size={28} color={colors.text.primary} />;
-              })()}
+        <View style={styles.cardTopContainer}>
+          {/* Base gradient background always present */}
+          <LinearGradient
+            colors={bgColors}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+
+          {/* High-res Image overlay when available */}
+          {hasImage && (
+            <>
+              <Image
+                source={{ uri: imageUrl }}
+                style={[StyleSheet.absoluteFillObject, { width: '100%', height: '100%', borderTopLeftRadius: 36, borderTopRightRadius: 36 }]}
+                resizeMode="cover"
+              />
+              <LinearGradient
+                colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.5)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0, y: 1 }}
+                style={[StyleSheet.absoluteFillObject, { borderTopLeftRadius: 36, borderTopRightRadius: 36 }]}
+              />
+            </>
+          )}
+
+          <View style={styles.cardTop}>
+            <View style={styles.cardLogoWrap}>
+              <View style={[
+                styles.cardLogoBox,
+                { borderRadius: radii.xl },
+                hasImage && {
+                  backgroundColor: 'rgba(255, 255, 255, 0.88)',
+                  borderColor: 'rgba(255, 255, 255, 0.95)',
+                }
+              ]}>
+                {(() => {
+                  const emojiVal = job.emoji || 'briefcase';
+                  const iconData = ICON_MAP[emojiVal] || ICON_MAP['briefcase'];
+                  const IconComp = iconData.fam;
+                  return <IconComp name={iconData.name} size={28} color={hasImage ? '#1A1817' : colors.text.primary} />;
+                })()}
+              </View>
             </View>
           </View>
-        </LinearGradient>
+        </View>
         
         <View style={[styles.cardBottom, { backgroundColor: colors.bg.card }]}>
           <Text style={[typography.caption, { color: colors.brand.orange }]}>{job.company}</Text>
@@ -496,7 +527,24 @@ function ExpandedDetailCard({ job, isVisible, onClose, onApply }) {
       <Animated.View style={cardStyle}>
         
         <Animated.View style={closedBackgroundStyle}>
-          <LinearGradient colors={bgColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ flex: 1, borderTopLeftRadius: 36, borderTopRightRadius: 36 }} />
+          <View style={{ flex: 1, borderTopLeftRadius: 36, borderTopRightRadius: 36, overflow: 'hidden', position: 'relative' }}>
+            <LinearGradient colors={bgColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFillObject} />
+            {getJobImageUrl(job) ? (
+              <>
+                <Image
+                  source={{ uri: getJobImageUrl(job) }}
+                  style={[StyleSheet.absoluteFillObject, { width: '100%', height: '100%', borderTopLeftRadius: 36, borderTopRightRadius: 36 }]}
+                  resizeMode="cover"
+                />
+                <LinearGradient
+                  colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.55)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 1 }}
+                  style={[StyleSheet.absoluteFillObject, { borderTopLeftRadius: 36, borderTopRightRadius: 36 }]}
+                />
+              </>
+            ) : null}
+          </View>
           
           {/* Invisible sizing block perfectly matching JobCard's cardBottom layout to force exact same gradient height */}
           <View style={[styles.cardBottom, { opacity: 0 }]} pointerEvents="none">
@@ -1423,6 +1471,13 @@ const styles = StyleSheet.create({
     borderRadius: 36,
     overflow: 'hidden',
     backgroundColor: '#fff',
+  },
+  cardTopContainer: {
+    flex: 1,
+    borderTopLeftRadius: 36,
+    borderTopRightRadius: 36,
+    overflow: 'hidden',
+    position: 'relative',
   },
   cardTop: {
     flex: 1,
