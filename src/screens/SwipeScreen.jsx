@@ -319,43 +319,6 @@ function AnimatedCard({ job, isTop, stackIndex, translateX, translateY, onPress,
   );
 }
 
-// ─── LeavingCard ────────────────────────────────────────────────────────────
-
-function LeavingCard({ item, onComplete }) {
-  const { job, direction, startX = 0, startY = 0 } = item;
-  const posX = useSharedValue(startX); 
-  const posY = useSharedValue(startY);
-
-  useEffect(() => {
-    const targetX = direction === 'right' ? SCREEN_W * 1.5 : direction === 'left' ? -SCREEN_W * 1.5 : 0;
-    const targetY = direction === 'down' ? SCREEN_H * 1.3 : 0;
-
-    posX.value = withTiming(targetX, { duration: 350 });
-    posY.value = withTiming(targetY, { duration: 350 }, (finished) => {
-      if (finished) runOnJS(onComplete)();
-    });
-  }, [direction, onComplete]);
-
-  const style = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: posX.value },
-      { translateY: posY.value },
-      { rotate: `${interpolate(posX.value, [-SCREEN_W / 2, 0, SCREEN_W / 2], [-15, 0, 15])}deg` },
-    ],
-  }));
-
-  return (
-    <Animated.View 
-      style={[styles.cardWrapper, style, { zIndex: 200 }]} 
-      pointerEvents="none"
-      renderToHardwareTextureAndroid={true}
-      shouldRasterizeIOS={true}
-    >
-      <JobCard job={job} isTop={true} />
-    </Animated.View>
-  );
-}
-
 /* ─── Pulsing Loading Indicator for Job Cards ─── */
 function LoadingPulse() {
   const { colors, radii, shadows } = useTheme();
@@ -662,7 +625,6 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
   const [jobs, setJobs] = useState([]);
   const [showDetail, setShowDetail] = useState(false);
   const [detailJob, setDetailJob] = useState(null);
-  const [exitingCards, setExitingCards] = useState([]);
   const queueInitialized = useRef(false);
 
   const [activeNotification, setActiveNotification] = useState(null);
@@ -891,6 +853,8 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
 
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
+  const contextX = useSharedValue(0);
+  const contextY = useSharedValue(0);
   const swipedCardId = useSharedValue(null);
   const indexOffset = useSharedValue(0);
 
@@ -1078,23 +1042,14 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
   }, [topJobId, swipedCardId, indexOffset]);
 
   // Called after a successful swipe animation completes
-  const handleSwipeComplete = useCallback((direction) => {
+  const handleSwipeComplete = useCallback((direction, passedX, passedY, velocityX, velocityY) => {
     // FIX: Look up the job on the JS thread where state is always fresh
     const topJob = jobs[0]; 
     if (!topJob) return;
 
     // Capture current trajectory before resetting shared values
-    const currentX = translateX.value;
-    const currentY = translateY.value;
-
-    // Handoff to exiting state for smooth flight
-    setExitingCards(prev => [...prev, { 
-      id: `${topJob.id}-exiting-${Date.now()}`, 
-      job: topJob, 
-      direction,
-      startX: currentX,
-      startY: currentY
-    }]);
+    const currentX = passedX ?? translateX.value;
+    const currentY = passedY ?? translateY.value;
 
     // Instantly freeze the visual state on the UI thread
     // This perfectly bridges the gap before React re-renders the deck
@@ -1204,9 +1159,15 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
 
   const gesture = Gesture.Pan()
     .minDistance(8)
+    .onStart(() => {
+      'worklet';
+      contextX.value = translateX.value;
+      contextY.value = translateY.value;
+    })
     .onUpdate((e) => {
-      translateX.value = e.translationX;
-      translateY.value = e.translationY * 0.65; // Dampen less (0.65 instead of 0.4) so vertical drag feels lighter
+      'worklet';
+      translateX.value = contextX.value + e.translationX;
+      translateY.value = contextY.value + e.translationY * 0.65; // Dampen less (0.65 instead of 0.4) so vertical drag feels lighter
 
       const THRESHOLD = 100;
       const isOver = Math.abs(translateX.value) > THRESHOLD || translateY.value > THRESHOLD;
@@ -1229,20 +1190,15 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
 
       if (isRight || isLeft || isDown) {
         const dir = isDown ? 'down' : isRight ? 'right' : 'left';
-        const targetX = isRight ? SCREEN_W * 1.5 : isLeft ? -SCREEN_W * 1.5 : 0;
-        const targetY = isDown ? SCREEN_H * 1.5 : 0;
         
         runOnJS(playSound)('swipe');
         if (dir === 'right') {
            runOnJS(playSound)('match');
         }
 
-        translateX.value = withTiming(targetX, timings.quick);
-        translateY.value = withTiming(targetY, timings.quick, (finished) => {
-          if (finished) {
-            runOnJS(handleSwipeComplete)(dir);
-          }
-        });
+        // Handoff to JS immediately so LeavingCard smoothly takes over the trajectory 
+        // without waiting for the animation to end, which removes the stutter/jump!
+        runOnJS(handleSwipeComplete)(dir, translateX.value, translateY.value, e.velocityX, e.velocityY);
       } else {
         // Snappier, lighter spring physics to snap card back to center quickly when released
         translateX.value = withSpring(0, springs.snappy);
@@ -1250,10 +1206,6 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
       }
       hasTriggeredHaptic.value = false;
     });
-
-  const removeExitingCard = useCallback((id) => {
-    setExitingCards(prev => prev.filter(c => c.id !== id));
-  }, []);
 
   const openDetail = useCallback(() => {
     if (jobs.length === 0) return;
@@ -1263,13 +1215,7 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
 
   const triggerSwipe = useCallback((dir) => {
     // For trigger buttons or programmatic swipes
-    const targetX = dir === 'right' ? SCREEN_W * 1.5 : dir === 'left' ? -SCREEN_W * 1.5 : 0;
-    const targetY = dir === 'down' ? SCREEN_H * 1.5 : 0;
-    
-    translateX.value = withTiming(targetX, { duration: 400 });
-    translateY.value = withTiming(targetY, { duration: 400 }, (finished) => {
-      if (finished) runOnJS(handleSwipeComplete)(dir);
-    });
+    handleSwipeComplete(dir, 0, 0, 0, 0);
   }, [handleSwipeComplete]);
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1418,10 +1364,6 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
             </TouchableOpacity>
           </View>
         ) : renderCards()}
-
-        {exitingCards.map(item => (
-          <LeavingCard key={item.id} item={item} onComplete={() => removeExitingCard(item.id)} />
-        ))}
       </View>
 
       {/* Expanded Details Card Overlay */}

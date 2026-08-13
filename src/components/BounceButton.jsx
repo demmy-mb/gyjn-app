@@ -20,6 +20,7 @@ export default function BounceButton({
   activeOpacity = 0.8,
   variant = 'default', // 'default' | 'ghost' | 'destructive'
   useHaptic = false,
+  delayPressIn = 100,
   ...props
 }) {
   const { colors, radii } = useTheme();
@@ -32,13 +33,15 @@ export default function BounceButton({
       else haptic.press();
     }
     
-    scale.value = withSpring(activeScale, springs.snappy);
+    // Scale down quickly without bounce
+    scale.value = withTiming(activeScale, { duration: 100 });
     opacity.value = withTiming(activeOpacity, timings.instant);
     if (props.onPressIn) props.onPressIn(e);
   }, [activeScale, activeOpacity, variant, useHaptic, props.onPressIn]);
 
   const handlePressOut = useCallback((e) => {
-    scale.value = withSpring(1, springs.snappy);
+    // Spring back with reduced bounciness (higher damping, lower mass)
+    scale.value = withSpring(1, { damping: 22, stiffness: 300, mass: 0.6 });
     opacity.value = withTiming(1, timings.quick);
     if (props.onPressOut) props.onPressOut(e);
   }, [props.onPressOut]);
@@ -65,6 +68,7 @@ export default function BounceButton({
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
+      delayPressIn={delayPressIn}
       style={[getVariantStyle(), animatedStyle, style]}
       {...props}
     >

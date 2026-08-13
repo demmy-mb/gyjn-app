@@ -6,7 +6,7 @@ import { NavigationContainer, useRoute } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Text, View, Pressable, Dimensions, Platform, ActivityIndicator } from "react-native";
+import { Text, View, Pressable, Dimensions, Platform, ActivityIndicator, StatusBar } from "react-native";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, Easing } from "react-native-reanimated";
 import { BlurView } from 'expo-blur';
@@ -23,6 +23,7 @@ import {
 } from '@expo-google-fonts/inter';
 import BounceButton from './src/components/BounceButton';
 import { ThemeProvider, useTheme } from './src/lib/ThemeProvider';
+import { useMatches } from './src/hooks/useMatches';
 import { springs, timings } from './src/lib/animations';
 import { haptic } from './src/lib/haptics';
 import { preloadSounds } from './src/lib/sounds';
@@ -96,6 +97,27 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 function CustomTabBar({ state, descriptors, navigation }) {
   const insets = useSafeAreaInsets();
   const { colors, typography, radii } = useTheme();
+  
+  const route = useRoute();
+  const rawParams = route.params || {};
+  const params = rawParams.params || rawParams;
+  const isEmployer = params.userType === "employer";
+  
+  const { matches } = useMatches(params.name, isEmployer);
+  const otherSenderType = isEmployer ? 'seeker' : 'employer';
+  
+  let hasUnreadMatches = false;
+  for (const item of matches || []) {
+    const msgs = item.messages || [];
+    if (msgs.length > 0) {
+      const sortedMsgs = [...msgs].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      const lastMsg = sortedMsgs[sortedMsgs.length - 1];
+      if (lastMsg.sender_type === otherSenderType || (otherSenderType === 'seeker' && lastMsg.sender_type === 'candidate')) {
+        hasUnreadMatches = true;
+        break;
+      }
+    }
+  }
   
   const totalTabs = state.routes.length;
   const containerWidth = SCREEN_WIDTH;
@@ -190,7 +212,7 @@ function CustomTabBar({ state, descriptors, navigation }) {
             >
               <View>
                 {icon}
-                {route.name === 'Matches' && !isFocused && (
+                {route.name === 'Matches' && hasUnreadMatches && !isFocused && (
                   <View style={{
                     position: 'absolute',
                     top: -2,
@@ -269,6 +291,11 @@ function MainTabs() {
   );
 }
 
+function GlobalStatusBar() {
+  const { isDark } = useTheme();
+  return <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor="transparent" translucent />;
+}
+
 // ── Root Stack ────────────────────────────────────────────────────────────────
 const Stack = createNativeStackNavigator();
 
@@ -308,14 +335,15 @@ export default Sentry.wrap(function App() {
 
   return (
     <ThemeProvider>
+      <GlobalStatusBar />
       <QueryClientProvider client={queryClient}>
         <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayoutRootView}>
           <SafeAreaProvider>
             {Constants.appOwnership !== 'expo' && <GlobalNotificationHandler />}
             <NavigationContainer>
-              <Stack.Navigator
+                <Stack.Navigator
                   initialRouteName="Splash"
-                  screenOptions={{ headerShown: false, animation: "fade" }}
+                  screenOptions={{ headerShown: false, animation: "fade", animationDuration: 100 }}
                 >
                   <Stack.Screen name="Splash"      component={SplashScreen} />
                   <Stack.Screen name="Auth"        component={AuthScreen} />
@@ -324,22 +352,22 @@ export default Sentry.wrap(function App() {
                   <Stack.Screen
                     name="Main"
                     component={MainTabs}
-                    options={{ animation: "slide_from_right" }}
+                    options={{ animation: "fade", animationDuration: 100 }}
                   />
                   <Stack.Screen
                     name="Chat"
                     component={ChatScreen}
-                    options={{ animation: "slide_from_right" }}
+                    options={{ animation: "fade", animationDuration: 100 }}
                   />
                   <Stack.Screen
                     name="Settings"
                     component={SettingsScreen}
-                    options={{ animation: "slide_from_right" }}
+                    options={{ animation: "fade", animationDuration: 100 }}
                   />
                   <Stack.Screen
                     name="Premium"
                     component={PremiumScreen}
-                    options={{ presentation: "modal" }}
+                    options={{ presentation: "modal", animationDuration: 200 }}
                   />
               </Stack.Navigator>
             </NavigationContainer>

@@ -13,15 +13,15 @@ const TIERS = [
   {
     id: 'yearly',
     title: 'Yearly',
-    price: '₦48,000/year',
-    originalPrice: '₦96,000/year',
+    price: '₦15,000/year',
+    originalPrice: '₦30,000/year',
     subtitle: 'Pay Once, Save 50%',
     badge: 'For You 50% OFF',
   },
   {
     id: 'monthly',
     title: 'Monthly',
-    price: '₦8,000/month',
+    price: '₦2,500/month',
     originalPrice: null,
     subtitle: 'Flexible subscription',
     badge: null,

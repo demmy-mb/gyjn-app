@@ -22,6 +22,7 @@ import { supabase } from '../lib/supabase';
 import { C } from '../lib/theme';
 import { useTheme } from '../lib/ThemeProvider';
 import BounceButton from '../components/BounceButton';
+import { useMatches } from '../hooks/useMatches';
 
 const STATUS_COLORS = {
   Applied:      { bg: 'rgba(255,107,44,0.12)', text: C.orange },
@@ -232,9 +233,9 @@ const SwipeableRow = React.memo(function SwipeableRow({ item, isNew, onUnapplyCo
     // Lock the height to the measured value before starting the collapse transition
     rowHeight.value = measuredHeight;
 
-    translateX.value = withTiming(-SCREEN_W, { duration: 250 }, (finished) => {
+    translateX.value = withTiming(-SCREEN_W, { duration: 150 }, (finished) => {
       if (finished) {
-        rowHeight.value = withTiming(0, { duration: 200 }, (heightFinished) => {
+        rowHeight.value = withTiming(0, { duration: 100 }, (heightFinished) => {
           if (heightFinished) {
             // runOnJS redirects execution back to the main React thread (JS thread)
             runOnJS(onUnapplyConfirmed)(item);
@@ -242,7 +243,7 @@ const SwipeableRow = React.memo(function SwipeableRow({ item, isNew, onUnapplyCo
         });
       }
     });
-    opacity.value = withTiming(0, { duration: 250 });
+    opacity.value = withTiming(0, { duration: 150 });
   };
 
   const handleUnapplyPress = () => {
@@ -268,91 +269,21 @@ const SwipeableRow = React.memo(function SwipeableRow({ item, isNew, onUnapplyCo
     );
   };
 
-  const handleCardPress = () => {
-    if (onOpenDetails) {
-      onOpenDetails(item);
-    }
-  };
-
   const handleChatNavigation = () => {
     if (!canChat) return;
     swipeableRef.current?.close();
     navigation.navigate('Chat', { match: item, userName, userType });
   };
 
+  // Only allow pressing the card if they are in a state that allows chatting (Interviewing or Hired)
+  // When pressed, it takes them directly into the chat room.
+  const handleCardPress = canChat ? handleChatNavigation : undefined;
+
   const handleSwipeableRightOpen = () => {
     // No-op — swipe visual feedback is sufficient
   };
 
-  const renderLeftActions = (progress, dragX) => {
-    if (!canChat) return null;
 
-    if (dragX !== dragXRef.current) {
-      if (dragXRef.current) dragXRef.current.removeAllListeners();
-      dragXRef.current = dragX;
-      dragX.addListener(({ value }) => {
-        if (value >= 70 && !hapticFired.current) {
-          hapticFired.current = true;
-        } else if (value < 70 && hapticFired.current) {
-          hapticFired.current = false;
-        }
-      });
-    }
-
-    const scale = dragX.interpolate({
-      inputRange: [0, 40, 70],
-      outputRange: [0.5, 0.8, 1.2],
-      extrapolate: 'clamp',
-    });
-    const opacity = dragX.interpolate({
-      inputRange: [0, 40, 70],
-      outputRange: [0, 0.6, 1],
-      extrapolate: 'clamp',
-    });
-    const rotate = dragX.interpolate({
-      inputRange: [0, 70],
-      outputRange: ['0deg', '360deg'],
-      extrapolate: 'clamp',
-    });
-    const translateX = dragX.interpolate({
-      inputRange: [0, 70],
-      outputRange: [-20, 0],
-      extrapolate: 'clamp',
-    });
-
-    return (
-      <View style={{
-        width: 80,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingLeft: 12,
-      }}>
-        <RNAnimated.View style={{
-          transform: [{ scale }, { translateX }],
-          opacity,
-          justifyContent: 'center',
-          alignItems: 'center',
-          width: 48,
-          height: 48,
-          borderRadius: 24,
-          backgroundColor: 'rgba(255, 107, 44, 0.12)',
-        }}>
-          {/* Rotating dashed border */}
-          <RNAnimated.View style={{
-            position: 'absolute',
-            width: '100%',
-            height: '100%',
-            borderRadius: 24,
-            borderWidth: 2,
-            borderColor: C.orange,
-            borderStyle: 'dashed',
-            transform: [{ rotate }]
-          }} />
-          <Feather name="message-circle" size={20} color={C.orange} />
-        </RNAnimated.View>
-      </View>
-    );
-  };
 
   const renderRightActions = () => {
     if (userType === 'employer') return null; // Remove for employers
@@ -375,19 +306,25 @@ const SwipeableRow = React.memo(function SwipeableRow({ item, isNew, onUnapplyCo
       style={[styles.swipeableItemWrap, animatedStyle]}
       onLayout={onLayout}
     >
-      <Swipeable
-        ref={swipeableRef}
-        renderRightActions={renderRightActions}
-        renderLeftActions={renderLeftActions}
-        onSwipeableLeftWillOpen={handleChatNavigation}
-        onSwipeableRightWillOpen={handleSwipeableRightOpen}
-        friction={2}
-        overshootFriction={8}
-        rightThreshold={60}
-        leftThreshold={70}
-        overshootLeft={true}
-        overshootRight={false}
-      >
+      {userType !== 'employer' ? (
+        <Swipeable
+          ref={swipeableRef}
+          renderRightActions={renderRightActions}
+          onSwipeableRightWillOpen={handleSwipeableRightOpen}
+          friction={2}
+          overshootFriction={8}
+          rightThreshold={60}
+          overshootRight={false}
+        >
+          <MatchCard
+            item={item}
+            isNew={isNew}
+            onPress={handleCardPress}
+            onChatPress={handleChatNavigation}
+            userType={userType}
+          />
+        </Swipeable>
+      ) : (
         <MatchCard
           item={item}
           isNew={isNew}
@@ -395,7 +332,7 @@ const SwipeableRow = React.memo(function SwipeableRow({ item, isNew, onUnapplyCo
           onChatPress={handleChatNavigation}
           userType={userType}
         />
-      </Swipeable>
+      )}
     </Animated.View>
   );
 });
@@ -473,69 +410,7 @@ export default function MatchesScreen({ route, navigation }) {
   }, [initialSearchQuery]);
   const [selectedStage, setSelectedStage] = useState('All');
 
-  const { data: matches = [], isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['matches', userName],
-    queryFn:  async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return [];
-
-      const tableName = isEmployer ? 'employer_profiles' : 'seeker_profiles';
-      const { data: dbProfile } = await supabase
-        .from(tableName)
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      let query = supabase
-        .from('matches')
-        .select(`
-          *,
-          jobs(id, role, company, emoji, job_type, salary, description, reqs, tags, colors, category),
-          messages(text, sender_type, created_at)
-        `);
-
-      if (!isEmployer) {
-        query = query.eq('user_id', user.id);
-      }
-
-      const { data, error } = await query.order('created_at', { ascending: false });
-      if (error) throw new Error(error.message);
-      return data ?? [];
-    },
-    staleTime: 30_000, // 30 s — cached between tab switches
-  });
-
-  useFocusEffect(
-    useCallback(() => {
-      refetch();
-    }, [refetch])
-  );
-
-  // Realtime matches & messages cache invalidation listener
-  // Updates pipeline status and message unread dots on screen dynamically
-  useEffect(() => {
-    const channel = supabase
-      .channel('matches-messages-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
-        () => {
-          refetch(); // Invalidate matches cache to fetch new messages and update unread dot indicators
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'matches' },
-        () => {
-          refetch(); // Invalidate matches cache on pipeline status updates
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [refetch]);
+  const { matches, isLoading, isFetching, refetch } = useMatches(userName, isEmployer);
 
   const stageCounts = useMemo(() => {
     const counts = {
@@ -770,9 +645,6 @@ export default function MatchesScreen({ route, navigation }) {
         </View>
       )}
 
-      {isLoading ? (
-        <MatchesSkeleton />
-      ) : (
         <FlatList
           data={filteredMatches}
           renderItem={renderItem}
@@ -784,15 +656,7 @@ export default function MatchesScreen({ route, navigation }) {
           showsVerticalScrollIndicator={false}
           initialNumToRender={8}
           windowSize={7}
-          refreshControl={
-            <RefreshControl
-              refreshing={isFetching && !isLoading}
-              onRefresh={() => {
-                refetch();
-              }}
-              tintColor={C.orange}
-            />
-          }
+
           ListHeaderComponent={
             filteredMatches.length > 0 ? (
               <Text style={[styles.sectionLabel, { color: colors.brand.orange }]}>
@@ -818,7 +682,6 @@ export default function MatchesScreen({ route, navigation }) {
             </View>
           }
         />
-      )}
 
       {/* Premium Job Details Bottom Sheet */}
       <BottomSheet

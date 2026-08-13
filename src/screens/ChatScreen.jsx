@@ -720,7 +720,7 @@ export default function ChatScreen({ route, navigation }) {
     : {};
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg.primary }}>
+    <SafeAreaView edges={['bottom', 'left', 'right']} style={{ flex: 1, backgroundColor: colors.bg.primary }}>
       <Wrapper
         style={[styles.container, { backgroundColor: colors.bg.primary }]}
         {...wrapperProps}
@@ -734,35 +734,22 @@ export default function ChatScreen({ route, navigation }) {
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, backgroundColor: Platform.OS === 'ios' ? (isDark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.65)') : colors.bg.card }}
       >
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12), backgroundColor: 'transparent', borderBottomWidth: 0 }]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12), paddingLeft: Math.max(insets.left, 24), paddingRight: Math.max(insets.right, 24), backgroundColor: 'transparent', borderBottomWidth: 0 }]}>
           <BounceButton onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text style={[styles.backBtnText, { color: colors.text.primary }]}>←</Text>
+            <Feather name="arrow-left" size={24} color={colors.text.primary} />
           </BounceButton>
           <View style={styles.headerInfo}>
             <Text style={[styles.headerTitle, { color: colors.text.primary }]} numberOfLines={1}>{recipientName}</Text>
             <Text style={[styles.headerSubtitle, { color: colors.text.secondary }]} numberOfLines={1}>{jobTitle}</Text>
           </View>
-          <View style={{ width: 36 }} />
-        </View>
-
-        <View style={[styles.callBar, { backgroundColor: 'transparent' }]}>
-          <View style={styles.callBarInfo}>
-            <Text style={[styles.callBarLabel, { color: colors.text.hint }]}>CALL SCHEDULE</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Feather name={callDate ? "phone-call" : "calendar"} size={12} color={colors.text.primary} />
-              <Text style={[styles.callBarValue, { color: colors.text.primary }]}>{displayCallDate}</Text>
-            </View>
-          </View>
-          {isEmployer && (
-            <BounceButton
-              onPress={() => {
-                setTempDate(parseCallDate(callDate));
-                setShowDatePicker(true);
-              }}
-              style={styles.callBarBtn}
-            >
-              <Text style={styles.callBarBtnText}>{callDate ? 'Reschedule' : 'Set Call'}</Text>
+          {callDate ? (
+            <BounceButton onPress={() => {
+              Alert.alert('Call Scheduled', `You have a call scheduled for ${displayCallDate}`);
+            }} style={styles.backBtn}>
+              <Feather name="calendar" size={20} color={C.orange} />
             </BounceButton>
+          ) : (
+            <View style={{ width: 36 }} />
           )}
         </View>
       </GlassBackground>
@@ -847,7 +834,7 @@ export default function ChatScreen({ route, navigation }) {
           intensity={isDark ? 30 : 85} tint={isDark ? "dark" : "light"}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
-          style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 12), backgroundColor: Platform.OS === 'ios' ? (isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.7)') : colors.bg.card }]}
+          style={[styles.inputBar, { paddingBottom: 16, paddingLeft: Math.max(insets.left, 20), paddingRight: Math.max(insets.right, 20), backgroundColor: Platform.OS === 'ios' ? (isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.7)') : colors.bg.card }]}
         >
           {isEmployer && (
             <BounceButton
@@ -936,7 +923,7 @@ export default function ChatScreen({ route, navigation }) {
         />
       )}
       </Wrapper>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -950,8 +937,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   backBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center', backgroundColor: C.cream,
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent',
   },
   backBtnText: { fontSize: 20, fontWeight: '800', color: C.orange, marginTop: -2 },
   headerInfo: { flex: 1, alignItems: 'center', paddingHorizontal: 8 },
@@ -973,7 +960,7 @@ const styles = StyleSheet.create({
   callBarBtnText: { color: '#fff', fontSize: 11, fontWeight: '700' },
 
   // Messages
-  listContent: { paddingHorizontal: 16, paddingVertical: 16, gap: 6 },
+  listContent: { paddingHorizontal: 24, paddingVertical: 16, gap: 6 },
   loaderWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   // Bubbles
@@ -999,11 +986,16 @@ const styles = StyleSheet.create({
   msgTimeRight: { color: 'rgba(255,255,255,0.7)' },
 
   // Reply quote inside bubble
-  replyQuote: { borderRadius: 10, padding: 8, marginBottom: 4, borderLeftWidth: 3 },
-  replyQuoteMine: { backgroundColor: 'rgba(255,255,255,0.15)', borderLeftColor: 'rgba(255,255,255,0.5)' },
-  replyQuoteTheirs: { backgroundColor: 'rgba(0,0,0,0.04)', borderLeftColor: C.orange },
-  replyQuoteSender: { fontSize: 10, fontWeight: '800', color: C.orange, marginBottom: 2 },
-  replyQuoteText: { fontSize: 12, color: C.muted, lineHeight: 16 },
+  replyQuote: {
+    paddingHorizontal: 10, paddingVertical: 6, marginBottom: 6,
+    borderLeftWidth: 4,
+    borderTopRightRadius: 8, borderBottomRightRadius: 8,
+    borderTopLeftRadius: 2, borderBottomLeftRadius: 2,
+  },
+  replyQuoteMine: { backgroundColor: 'rgba(255,255,255,0.15)', borderLeftColor: 'rgba(255,255,255,0.6)' },
+  replyQuoteTheirs: { backgroundColor: 'rgba(0,0,0,0.05)', borderLeftColor: C.orange },
+  replyQuoteSender: { fontSize: 11, fontWeight: '800', color: C.orange, marginBottom: 2 },
+  replyQuoteText: { fontSize: 13, color: C.muted, lineHeight: 18 },
 
   // System messages
   systemMsgRow: { flexDirection: 'row', justifyContent: 'center', width: '100%', marginVertical: 4 },
@@ -1031,21 +1023,21 @@ const styles = StyleSheet.create({
   // Reply preview bar
   replyBar: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 8,
+    backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 12,
     borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)',
   },
   replyBarAccent: {
-    width: 3, height: '100%', minHeight: 30,
-    backgroundColor: C.orange, borderRadius: 2, marginRight: 10,
+    width: 4, height: '100%', minHeight: 36,
+    backgroundColor: C.orange, borderRadius: 2, marginRight: 12,
   },
   replyBarContent: { flex: 1 },
-  replyBarSender: { fontSize: 11, fontWeight: '800', color: C.orange, marginBottom: 1 },
-  replyBarText: { fontSize: 12, color: C.muted, lineHeight: 16 },
+  replyBarSender: { fontSize: 12, fontWeight: '800', color: C.orange, marginBottom: 2 },
+  replyBarText: { fontSize: 13, color: C.muted, lineHeight: 18 },
   replyBarClose: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: C.lightBg, alignItems: 'center', justifyContent: 'center', marginLeft: 10,
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: C.lightBg, alignItems: 'center', justifyContent: 'center', marginLeft: 12,
   },
-  replyBarCloseText: { fontSize: 13, fontWeight: '700', color: C.muted },
+  replyBarCloseText: { fontSize: 14, fontWeight: '700', color: C.muted },
 
   // Input Bar
   inputBar: {
