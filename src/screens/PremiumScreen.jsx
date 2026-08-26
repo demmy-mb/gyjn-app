@@ -5,6 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeIn, SlideInRight, SlideOutLeft, SlideInLeft, SlideOutRight } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../lib/ThemeProvider';
+import { usePostHog } from 'posthog-react-native';
 import BounceButton from '../components/BounceButton';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -35,6 +36,7 @@ const FEATURES = [
 ];
 
 export default function PremiumScreen({ navigation }) {
+  const posthog = usePostHog();
   const { colors, typography, radii, shadows, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [viewState, setViewState] = useState('intro'); // 'intro' | 'plans'
@@ -42,6 +44,11 @@ export default function PremiumScreen({ navigation }) {
   const [animDirection, setAnimDirection] = useState(1);
 
   const selectedData = TIERS.find(t => t.id === selectedTier);
+
+  // Track premium screen view on mount
+  React.useEffect(() => {
+    posthog.capture('premium_viewed');
+  }, [posthog]);
 
   const goToPlans = () => {
     setAnimDirection(1);
@@ -210,7 +217,14 @@ export default function PremiumScreen({ navigation }) {
               {selectedData.price} {selectedData.badge ? '(50% OFF)' : ''}
             </Text>
           </View>
-          <BounceButton style={[styles.continueBtn, { backgroundColor: colors.brand.orange }]}>
+          <BounceButton
+            style={[styles.continueBtn, { backgroundColor: colors.brand.orange }]}
+            onPress={() => posthog.capture('premium_purchase_initiated', {
+              plan_id: selectedTier,
+              plan_price: selectedData?.price,
+              is_discounted: Boolean(selectedData?.badge),
+            })}
+          >
             <Text style={styles.continueTitle}>Continue</Text>
             <Text style={styles.continueSubtitle}>Cancel Anytime</Text>
           </BounceButton>

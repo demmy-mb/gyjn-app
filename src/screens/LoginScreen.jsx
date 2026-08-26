@@ -9,6 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sentry from '@sentry/react-native';
+import { usePostHog } from 'posthog-react-native';
 import { supabase } from '../lib/supabase';
 import { C } from '../lib/theme';
 import { getBackendUrl } from '../lib/config';
@@ -74,6 +75,7 @@ import { NativeModules } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, withSpring } from 'react-native-reanimated';
 
 export default function LoginScreen({ navigation, route }) {
+  const posthog = usePostHog();
   const [name, setName]               = useState('');
   const [role, setRole]               = useState('');
   const [companyName, setCompanyName] = useState('');
@@ -178,6 +180,7 @@ export default function LoginScreen({ navigation, route }) {
       setCvUrl(data.publicUrl);
       setCvName(file.name);
       setCvUploading(false);
+      posthog.capture('cv_uploaded', { file_type: file.mimeType, is_employer: isEmployer });
 
       // Trigger AI parsing in the background
       setAiParsing(true);
@@ -289,6 +292,18 @@ export default function LoginScreen({ navigation, route }) {
       }
 
       Sentry.setUser({ id: user.id, email: user.email, role: isEmployer ? 'employer' : 'seeker' });
+
+      // Identify user and track profile creation in PostHog
+      posthog.identify(user.id, {
+        $set: { user_type: isEmployer ? 'employer' : 'seeker', job_type: jobType, category: isEmployer ? null : category },
+        $set_once: { profile_created_date: new Date().toISOString() },
+      });
+      posthog.capture('profile_created', {
+        user_type: isEmployer ? 'employer' : 'seeker',
+        has_cv: Boolean(cvUrl),
+        skills_count: profile.skills.length,
+        job_type: jobType,
+      });
 
       navigation.reset({
         index: 0,

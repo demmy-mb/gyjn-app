@@ -14,6 +14,7 @@ import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sentry from '@sentry/react-native';
+import { usePostHog } from 'posthog-react-native';
 import { supabase } from '../lib/supabase';
 import { C } from '../lib/theme';
 import { getBackendUrl } from '../lib/config';
@@ -81,6 +82,7 @@ const CATEGORIES = [
 const JOB_TYPES = ['Full-time', 'Part-time', 'Contract', 'Internship'];
 
 export default function SettingsScreen({ navigation, route }) {
+  const posthog = usePostHog();
   const { colors, isDark, toggleDarkMode } = useTheme();
   
   const {
@@ -359,6 +361,12 @@ export default function SettingsScreen({ navigation, route }) {
         jobType: forcedDraft.jobType,
       });
 
+      posthog.capture('profile_updated', {
+        user_type: isEmployer ? 'employer' : 'seeker',
+        skills_count: forcedDraft.skills.length,
+        has_cv: Boolean(cvUrl),
+      });
+
       // Close modal on successful save
       closeEditModal();
       
@@ -545,6 +553,8 @@ export default function SettingsScreen({ navigation, route }) {
         text: 'Log Out', 
         style: 'destructive',
         onPress: async () => {
+          posthog.capture('user_logged_out');
+          posthog.reset();
           const { error } = await supabase.auth.signOut();
           if (error) {
             Alert.alert('Error', error.message);

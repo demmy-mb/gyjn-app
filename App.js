@@ -28,6 +28,9 @@ import { springs, timings } from './src/lib/animations';
 import { haptic } from './src/lib/haptics';
 import { preloadSounds } from './src/lib/sounds';
 
+import { PostHogProvider } from 'posthog-react-native';
+import { posthog } from './src/config/posthog';
+
 import SplashScreen    from "./src/screens/SplashScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
 import AuthScreen       from "./src/screens/AuthScreen";
@@ -341,6 +344,14 @@ export default Sentry.wrap(function App() {
           <SafeAreaProvider>
             {Constants.appOwnership !== 'expo' && <GlobalNotificationHandler />}
             <NavigationContainer>
+              <PostHogProvider
+                client={posthog}
+                autocapture={{
+                  captureScreens: true,
+                  captureTouches: true,
+                  propsToCapture: ['testID'],
+                }}
+              >
                 <Stack.Navigator
                   initialRouteName="Splash"
                   screenOptions={{ headerShown: false, animation: "fade", animationDuration: 100 }}
@@ -370,6 +381,7 @@ export default Sentry.wrap(function App() {
                     options={{ presentation: "modal", animationDuration: 200 }}
                   />
               </Stack.Navigator>
+              </PostHogProvider>
             </NavigationContainer>
           </SafeAreaProvider>
         </GestureHandlerRootView>

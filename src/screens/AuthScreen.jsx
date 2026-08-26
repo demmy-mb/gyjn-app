@@ -14,10 +14,12 @@ import { supabase } from '../lib/supabase';
 import { C } from '../lib/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Sentry from '@sentry/react-native';
+import { usePostHog } from 'posthog-react-native';
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function AuthScreen({ navigation, route }) {
+  const posthog = usePostHog();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -147,6 +149,12 @@ export default function AuthScreen({ navigation, route }) {
 
       if (empData && empData.user_name) {
         Sentry.setUser({ id: user.id, email: user.email, role: 'employer' });
+        // Identify the user in PostHog with stable user ID as distinct_id
+        posthog.identify(user.id, {
+          $set: { user_type: 'employer', company_name: empData.company_name },
+          $set_once: { first_login_date: new Date().toISOString() },
+        });
+        posthog.capture('user_logged_in', { user_type: 'employer', login_method: await AsyncStorage.getItem('lastLoginMethod') || 'unknown' });
         navigation.reset({
           index: 0,
           routes: [{
@@ -172,6 +180,12 @@ export default function AuthScreen({ navigation, route }) {
 
       if (seekerData && seekerData.user_name) {
         Sentry.setUser({ id: user.id, email: user.email, role: 'seeker' });
+        // Identify the user in PostHog with stable user ID as distinct_id
+        posthog.identify(user.id, {
+          $set: { user_type: 'seeker', job_type: seekerData.job_type, category: seekerData.category },
+          $set_once: { first_login_date: new Date().toISOString() },
+        });
+        posthog.capture('user_logged_in', { user_type: 'seeker', login_method: await AsyncStorage.getItem('lastLoginMethod') || 'unknown' });
         navigation.reset({
           index: 0,
           routes: [{
@@ -296,6 +310,11 @@ export default function AuthScreen({ navigation, route }) {
         if (data?.session) {
           AsyncStorage.setItem('lastLoginMethod', 'email');
           // Signed in immediately! Auth listener handles routing.
+          posthog.capture('user_signed_up', { login_method: 'email', role: route?.params?.role || 'seeker' });
+        } else if (data?.user) {
+          // Email confirmation required — user is registered but not yet signed in.
+          posthog.capture('user_signed_up', { login_method: 'email', role: route?.params?.role || 'seeker', email_confirmation_required: true });
+          Alert.alert('Sign Up Successful!', 'Check your email inbox to verify your account if email confirmation is enabled.');
         } else {
           Alert.alert('Sign Up Successful!', 'Check your email inbox to verify your account if email confirmation is enabled.');
         }

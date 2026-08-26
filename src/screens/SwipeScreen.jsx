@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Sentry from '@sentry/react-native';
+import { usePostHog } from 'posthog-react-native';
 import { supabase } from '../lib/supabase';
 import { C } from '../lib/theme';
 import { useTheme } from '../lib/ThemeProvider';
@@ -619,6 +620,7 @@ function ExpandedDetailCard({ job, isVisible, onClose, onApply }) {
 // ─── SwipeScreen ────────────────────────────────────────────────────────────
 
 export default function SwipeScreen({ route, navigation, onMatchLand }) {
+  const posthog = usePostHog();
   const { colors, typography, radii, shadows } = useTheme();
   const userType = route.params?.userType || 'seeker';
   const insets = useSafeAreaInsets();
@@ -1150,10 +1152,27 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
         }
       };
 
+      posthog.capture('job_applied', {
+        job_id: topJob.id,
+        company: topJob.company,
+        role: topJob.role,
+        match_percent: topJob.match,
+        category: topJob.category,
+      });
       saveMatch();
       if (onMatchLand) onMatchLand(topJob);
+    } else {
+      // direction === 'left' or 'down' — user skipped this job
+      posthog.capture('job_skipped', {
+        job_id: topJob.id,
+        company: topJob.company,
+        role: topJob.role,
+        match_percent: topJob.match,
+        category: topJob.category,
+        direction,
+      });
     }
-  }, [jobs, route.params, onMatchLand, translateX, translateY]);
+  }, [jobs, route.params, onMatchLand, translateX, translateY, posthog]);
 
   const hasTriggeredHaptic = useSharedValue(false);
 
@@ -1209,9 +1228,17 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
 
   const openDetail = useCallback(() => {
     if (jobs.length === 0) return;
-    setDetailJob(jobs[0]);
+    const topJob = jobs[0];
+    setDetailJob(topJob);
     setShowDetail(true);
-  }, [jobs]);
+    posthog.capture('job_viewed', {
+      job_id: topJob.id,
+      company: topJob.company,
+      role: topJob.role,
+      match_percent: topJob.match,
+      category: topJob.category,
+    });
+  }, [jobs, posthog]);
 
   const triggerSwipe = useCallback((dir) => {
     // For trigger buttons or programmatic swipes

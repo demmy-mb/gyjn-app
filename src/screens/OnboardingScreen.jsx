@@ -16,6 +16,7 @@ import * as Linking from 'expo-linking';
 import * as FileSystem from 'expo-file-system/legacy';
 import { makeRedirectUri } from 'expo-auth-session';
 import * as Sentry from '@sentry/react-native';
+import { usePostHog } from 'posthog-react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -77,6 +78,7 @@ function SelectionCard({ emoji, label, desc, onPress, colorTheme }) {
 
 // --- Main Wizard Screen ---
 export default function OnboardingScreen({ navigation, route }) {
+  const posthog = usePostHog();
   const { colors, typography, radii, shadows } = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -313,6 +315,7 @@ export default function OnboardingScreen({ navigation, route }) {
       if (signInError) Alert.alert('Login Error', signInError.message);
       else if (signInData?.session) await handleAuthSuccess(signInData.session.user, signInData.session.access_token);
     } else if (data?.session) {
+      posthog.capture('user_signed_up', { login_method: 'email', role: 'seeker' });
       await handleAuthSuccess(data.session.user, data.session.access_token);
     } else if (error) {
       Alert.alert('Sign Up Error', error.message);
@@ -484,10 +487,21 @@ Please synthesize this into a professional profile. Extract and format the reque
           skills: profileData.skills,
           experience_level: profileData.experience_level
         });
+        // Identify user and track onboarding completion
+        posthog.identify(session.user.id, {
+          $set: { user_type: 'seeker', experience_level: profileData.experience_level },
+          $set_once: { onboarding_completed_date: new Date().toISOString() },
+        });
       }
     } catch (e) {
       console.warn("Could not save to supabase:", e);
     }
+
+    posthog.capture('onboarding_completed', {
+      skills_count: profileData.skills.length,
+      experience_level: profileData.experience_level,
+      has_cv: Boolean(profileData.cv_url),
+    });
 
     navigation.reset({
       index: 0,
