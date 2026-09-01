@@ -2,7 +2,7 @@ import "react-native-gesture-handler";
 import React, { useEffect, useCallback } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
-import { NavigationContainer, useRoute } from "@react-navigation/native";
+import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -101,8 +101,9 @@ function CustomTabBar({ state, descriptors, navigation }) {
   const insets = useSafeAreaInsets();
   const { colors, typography, radii } = useTheme();
   
-  const route = useRoute();
-  const rawParams = route.params || {};
+  // Get params from the current active route via state (useRoute doesn't work in custom tab bars)
+  const currentRoute = state.routes[state.index];
+  const rawParams = currentRoute.params || {};
   const params = rawParams.params || rawParams;
   const isEmployer = params.userType === "employer";
   
@@ -249,8 +250,7 @@ function CustomTabBar({ state, descriptors, navigation }) {
  * tab. Screens read their own data via useQuery — params are only used for
  * immutable onboarding-time values (name, skills, cvUrl, etc.).
  */
-function MainTabs() {
-  const route = useRoute();
+function MainTabs({ route }) {
   const rawParams = route.params || {};
   const params = rawParams.params || rawParams; // Extract nested params if passed via { screen, params }
   const isEmployer = params.userType === "employer";

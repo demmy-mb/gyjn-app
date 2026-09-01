@@ -54,12 +54,8 @@ const JobCard = React.memo(function JobCard({ item, onPress }) {
   const imageUrl = getJobImageUrl(item);
   
   // Default values matching standard design in candidate swiper
-  const emojiVal = item.emoji || 'briefcase';
   const lightBgColor = item.colors?.[1] || C.peach;
   const darkColor = item.colors?.[0] || C.orange;
-  
-  const iconData = ICON_MAP[emojiVal] || ICON_MAP['briefcase'];
-  const IconComp = iconData.fam;
 
   return (
     <TouchableOpacity style={styles.card} activeOpacity={0.9} onPress={onPress}>
@@ -85,7 +81,13 @@ const JobCard = React.memo(function JobCard({ item, onPress }) {
       {/* Upper row: logo, role title, and status */}
       <View style={styles.cardHeaderRow}>
         <View style={[styles.cardLogoBox, { backgroundColor: lightBgColor }]}>
-          <IconComp name={iconData.name} size={22} color={darkColor} />
+          {item.logo_url ? (
+            <Image source={{ uri: item.logo_url }} style={{ width: 42, height: 42, borderRadius: 12 }} resizeMode="cover" />
+          ) : (
+            <Text style={{ fontSize: 22, fontWeight: '800', color: darkColor }}>
+              {(item.company || 'C').substring(0, 1).toUpperCase()}
+            </Text>
+          )}
         </View>
 
         <View style={styles.cardRoleContainer}>
@@ -875,6 +877,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   cardLogoText: {
     fontSize: 22,

@@ -199,12 +199,13 @@ function JobCard({ job, onPress, isTop }) {
                   borderColor: 'rgba(255, 255, 255, 0.95)',
                 }
               ]}>
-                {(() => {
-                  const emojiVal = job.emoji || 'briefcase';
-                  const iconData = ICON_MAP[emojiVal] || ICON_MAP['briefcase'];
-                  const IconComp = iconData.fam;
-                  return <IconComp name={iconData.name} size={28} color={hasImage ? '#1A1817' : colors.text.primary} />;
-                })()}
+                {job.logo_url ? (
+                  <Image source={{ uri: job.logo_url }} style={{ width: 60, height: 60, borderRadius: radii.xl }} resizeMode="cover" />
+                ) : (
+                  <Text style={{ fontSize: 24, fontWeight: '800', color: hasImage ? '#1A1817' : colors.text.primary }}>
+                    {(job.company || 'C').substring(0, 1).toUpperCase()}
+                  </Text>
+                )}
               </View>
             </View>
           </View>
@@ -532,13 +533,14 @@ function ExpandedDetailCard({ job, isVisible, onClose, onApply }) {
           contentContainerStyle={{ padding: 24, paddingTop: 88, paddingBottom: Math.max(insets.bottom, 24) + 100 + Math.max(insets.top, 16) }}
           showsVerticalScrollIndicator={false}
         >
-             <Animated.View style={iconScrollStyle}>
-               {(() => {
-                 const emojiVal = job.emoji || 'briefcase';
-                 const iconData = ICON_MAP[emojiVal] || ICON_MAP['briefcase'];
-                 const IconComp = iconData.fam;
-                 return <IconComp name={iconData.name} size={28} color={colors.text.primary} />;
-               })()}
+             <Animated.View style={[iconScrollStyle, { overflow: 'hidden' }]}>
+               {job.logo_url ? (
+                 <Image source={{ uri: job.logo_url }} style={{ width: 44, height: 44, borderRadius: 22 }} resizeMode="cover" />
+               ) : (
+                 <Text style={{ fontSize: 24, fontWeight: '800', color: colors.text.primary }}>
+                   {(job.company || 'C').substring(0, 1).toUpperCase()}
+                 </Text>
+               )}
              </Animated.View>
 
              <Animated.View style={[textTranslateStyle]}>
@@ -1481,6 +1483,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.35)',
+    overflow: 'hidden',
   },
   cardLogoEmoji: { fontSize: 32 },
   cardBottom: {

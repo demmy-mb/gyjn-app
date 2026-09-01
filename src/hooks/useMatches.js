@@ -20,7 +20,7 @@ export function useMatches(userName, isEmployer) {
         .from('matches')
         .select(`
           *,
-          jobs(id, role, company, emoji, job_type, salary, description, reqs, tags, colors, category),
+          jobs(id, role, company, emoji, job_type, salary, description, reqs, tags, colors, category, logo_url),
           messages(text, sender_type, created_at)
         `);
 

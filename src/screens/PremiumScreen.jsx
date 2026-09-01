@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Platform, Alert } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import Animated, { FadeInUp, FadeIn, SlideInRight, SlideOutLeft, SlideInLeft, SlideOutRight } from 'react-native-reanimated';
@@ -7,7 +7,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../lib/ThemeProvider';
 import { usePostHog } from 'posthog-react-native';
 import BounceButton from '../components/BounceButton';
-
+import { supabase } from '../lib/supabase';
+import { PaystackProvider, usePaystack } from 'react-native-paystack-webview';
 const { width: SCREEN_W } = Dimensions.get('window');
 
 const TIERS = [
@@ -15,17 +16,21 @@ const TIERS = [
     id: 'yearly',
     title: 'Yearly',
     price: '₦15,000/year',
+    rawPrice: 15000,
     originalPrice: '₦30,000/year',
     subtitle: 'Pay Once, Save 50%',
     badge: 'For You 50% OFF',
+    planCode: 'PLN_acbf252j2azbehj'
   },
   {
     id: 'monthly',
     title: 'Monthly',
     price: '₦2,500/month',
+    rawPrice: 2500,
     originalPrice: null,
     subtitle: 'Flexible subscription',
     badge: null,
+    planCode: 'PLN_svuxon2v4wvjvh4'
   }
 ];
 
@@ -36,12 +41,33 @@ const FEATURES = [
 ];
 
 export default function PremiumScreen({ navigation }) {
+  return (
+    <PaystackProvider
+      publicKey="pk_test_2dc3373a7c7640091159f65cc14306a605a54189"
+      currency="NGN"
+    >
+      <PremiumScreenContent navigation={navigation} />
+    </PaystackProvider>
+  );
+}
+
+function PremiumScreenContent({ navigation }) {
   const posthog = usePostHog();
   const { colors, typography, radii, shadows, isDark } = useTheme();
   const insets = useSafeAreaInsets();
+  const { popup } = usePaystack();
   const [viewState, setViewState] = useState('intro'); // 'intro' | 'plans'
   const [selectedTier, setSelectedTier] = useState('yearly');
   const [animDirection, setAnimDirection] = useState(1);
+  const [userEmail, setUserEmail] = useState('');
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user?.email) {
+        setUserEmail(data.user.email);
+      }
+    });
+  }, []);
 
   const selectedData = TIERS.find(t => t.id === selectedTier);
 
@@ -172,6 +198,56 @@ export default function PremiumScreen({ navigation }) {
     </Animated.View>
   );
 
+  const handlePaystackCheckout = () => {
+    const reference = `jinni_${selectedTier}_${Date.now()}`;
+    posthog.capture('premium_purchase_initiated', {
+      plan_id: selectedTier,
+      plan_price: selectedData?.price,
+      is_discounted: Boolean(selectedData?.badge),
+    });
+    popup.checkout({
+      email: userEmail || 'user@example.com',
+      amount: selectedData.rawPrice, // The library internally multiplies this by 100
+      reference,
+      plan: selectedData.planCode, // Link it to your Paystack subscription plan
+      metadata: {
+        plan_id: selectedTier,
+        custom_fields: [
+          { display_name: 'Plan', variable_name: 'plan', value: selectedTier },
+        ],
+      },
+      onCancel: (e) => {
+        Alert.alert('Payment Cancelled', 'Your payment was not completed.');
+      },
+      onSuccess: async (res) => {
+        try {
+          // Verify payment server-side via Supabase Edge Function
+          const { data, error } = await supabase.functions.invoke('verify-paystack', {
+            body: { reference: res.transactionRef || res.reference || reference },
+          });
+
+          if (error) throw error;
+
+          if (data?.verified) {
+            posthog.capture('premium_purchased_success', {
+              plan_id: selectedTier,
+              amount: selectedData.rawPrice,
+              reference: data.reference,
+            });
+            Alert.alert('🎉 Welcome to Premium!', 'Your payment was successful. Enjoy your new features!', [
+              { text: 'OK', onPress: () => navigation.goBack() },
+            ]);
+          } else {
+            Alert.alert('Payment Issue', 'We could not verify your payment. Please contact support.');
+          }
+        } catch (err) {
+          console.error('Payment verification error:', err);
+          Alert.alert('Verification Error', 'Payment was received but verification failed. Please contact support with your reference.');
+        }
+      }
+    });
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.bg.primary }]}>
       {/* Header */}
@@ -219,11 +295,7 @@ export default function PremiumScreen({ navigation }) {
           </View>
           <BounceButton
             style={[styles.continueBtn, { backgroundColor: colors.brand.orange }]}
-            onPress={() => posthog.capture('premium_purchase_initiated', {
-              plan_id: selectedTier,
-              plan_price: selectedData?.price,
-              is_discounted: Boolean(selectedData?.badge),
-            })}
+            onPress={handlePaystackCheckout}
           >
             <Text style={styles.continueTitle}>Continue</Text>
             <Text style={styles.continueSubtitle}>Cancel Anytime</Text>

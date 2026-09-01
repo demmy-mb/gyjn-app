@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   View, Text, StyleSheet, FlatList,
   TouchableOpacity, ActivityIndicator, RefreshControl, TextInput,
-  ScrollView, Alert, Dimensions, Animated as RNAnimated,
+  ScrollView, Alert, Dimensions, Animated as RNAnimated, Image,
 } from 'react-native';
 import BottomSheet, { BottomSheetView, BottomSheetBackdrop, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
@@ -74,47 +74,35 @@ const MatchCard = React.memo(function MatchCard({ item, isNew, onPress, onChatPr
             {(item.candidate_name || 'U').substring(0, 1).toUpperCase()}
           </Text>
         ) : (
-          (() => {
-            const emojiVal = item.jobs?.emoji || 'briefcase';
-            const iconData = ICON_MAP[emojiVal] || ICON_MAP['briefcase'];
-            const IconComp = iconData.fam;
-            return <IconComp name={iconData.name} size={24} color={C.night} />;
-          })()
+          item.jobs?.logo_url ? (
+            <Image source={{ uri: item.jobs.logo_url }} style={{ width: 50, height: 50, borderRadius: 25 }} resizeMode="cover" />
+          ) : (
+            <Text style={[styles.logoEmoji, { color: C.night, fontSize: 24, fontWeight: '800' }]}>
+              {(item.jobs?.company || 'C').substring(0, 1).toUpperCase()}
+            </Text>
+          )
         )}
-        {/* Match Percentage Badge (Battery Style) */}
+        {/* Match Percentage Badge */}
         {item.match_percent != null && (
           <View style={{
             position: 'absolute',
-            bottom: -6,
-            right: -8,
-            width: 36,
-            height: 14,
-            backgroundColor: 'rgba(0,0,0,0.3)',
-            borderRadius: 7,
-            overflow: 'hidden',
+            bottom: -4,
+            right: -6,
+            backgroundColor: item.match_percent >= 80 ? '#00C896' : item.match_percent >= 50 ? '#FF9A62' : '#FF4B4B',
+            borderRadius: 8,
+            paddingHorizontal: 5,
+            paddingVertical: 2,
             borderWidth: 1.5,
             borderColor: tc.bg.card,
             zIndex: 10,
+            minWidth: 32,
+            alignItems: 'center',
           }}>
-            {/* Fill Level */}
-            <View style={{
-              position: 'absolute',
-              left: 0, top: 0, bottom: 0,
-              width: `${Math.round(item.match_percent)}%`,
-              backgroundColor: item.match_percent >= 80 ? '#00C896' : item.match_percent >= 50 ? '#FF9A62' : '#FF4B4B',
-            }} />
-            {/* Percentage Text */}
             <Text style={{ 
-              position: 'absolute',
-              width: '100%',
-              textAlign: 'center',
-              lineHeight: 11,
-              fontSize: 8, 
+              fontSize: 9, 
               fontWeight: '900', 
               color: '#FFF',
-              textShadowColor: 'rgba(0,0,0,0.6)',
-              textShadowOffset: { width: 0, height: 1 },
-              textShadowRadius: 2,
+              letterSpacing: -0.3,
             }}>
               {Math.round(item.match_percent)}%
             </Text>
@@ -719,6 +707,11 @@ export default function MatchesScreen({ route, navigation }) {
                         <View style={{ backgroundColor: colors.bg.secondary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: colors.border.light }}>
                           <Text style={{ fontSize: 10, fontWeight: '700', color: colors.text.secondary }}>Applied for: {selectedJob.jobs?.role}</Text>
                         </View>
+                        {selectedJob.match_percent != null && (
+                          <View style={{ backgroundColor: '#FFF0E8', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: 'rgba(255,107,44,0.2)', marginLeft: 8 }}>
+                            <Text style={{ fontSize: 10, fontWeight: '800', color: C.orange }}>{Math.round(selectedJob.match_percent)}% Match</Text>
+                          </View>
+                        )}
                       </View>
                     </View>
                   </View>
@@ -873,12 +866,13 @@ export default function MatchesScreen({ route, navigation }) {
 
                   <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
                     <View style={[styles.logoBox, { width: 64, height: 64, backgroundColor: selectedJob.jobs?.colors?.[1] || colors.brand.peach, borderColor: 'transparent' }]}>
-                      {(() => {
-                        const emojiVal = selectedJob.jobs?.emoji || 'briefcase';
-                        const iconData = ICON_MAP[emojiVal] || ICON_MAP['briefcase'];
-                        const IconComp = iconData.fam;
-                        return <IconComp name={iconData.name} size={32} color={colors.text.primary} />;
-                      })()}
+                      {selectedJob.jobs?.logo_url ? (
+                        <Image source={{ uri: selectedJob.jobs.logo_url }} style={{ width: 60, height: 60, borderRadius: 30 }} resizeMode="cover" />
+                      ) : (
+                        <Text style={{ fontSize: 32, fontWeight: '800', color: colors.text.primary }}>
+                          {(selectedJob.jobs?.company || 'C').substring(0, 1).toUpperCase()}
+                        </Text>
+                      )}
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 22, fontWeight: '900', color: colors.text.primary }}>{selectedJob.jobs?.role}</Text>
@@ -889,6 +883,9 @@ export default function MatchesScreen({ route, navigation }) {
                   {/* Tags */}
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     <View style={[styles.detailPill, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}><Text style={[styles.detailPillText, { color: colors.text.secondary }]}>{selectedJob.status || 'Applied'}</Text></View>
+                    {selectedJob.match_percent != null && (
+                      <View style={[styles.detailPill, { backgroundColor: '#FFF0E8', borderColor: 'rgba(255,107,44,0.2)' }]}><Text style={[styles.detailPillText, { color: C.orange, fontWeight: '800' }]}>{Math.round(selectedJob.match_percent)}% Match</Text></View>
+                    )}
                     {selectedJob.jobs?.job_type && <View style={[styles.detailPill, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}><Text style={[styles.detailPillText, { color: colors.text.secondary }]}>{selectedJob.jobs?.job_type}</Text></View>}
                     {selectedJob.jobs?.salary && <View style={[styles.detailPill, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}><Text style={[styles.detailPillText, { color: colors.text.secondary }]}>{selectedJob.jobs?.salary}</Text></View>}
                     {selectedJob.jobs?.category && <View style={[styles.detailPill, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}><Text style={[styles.detailPillText, { color: colors.text.secondary }]}>{selectedJob.jobs?.category}</Text></View>}
@@ -1116,6 +1113,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,107,44,0.08)',
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: 'rgba(255,107,44,0.12)',
+    overflow: 'hidden',
   },
   logoEmoji: { fontSize: 24 },
   cardInfo:    { flex: 1 },
