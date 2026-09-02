@@ -85,6 +85,23 @@ const CARD_HEIGHT = 420;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+// The deck identifies cards by `job.id` (React key + the swipe hand-off check).
+// A repeated id means two mounted cards share a key and both get hidden when one of
+// them is swiped, so drop duplicates before they ever reach the deck.
+function dedupeJobs(list) {
+  const seen = new Set();
+  const out = [];
+  (list || []).forEach((job) => {
+    if (!job) return;
+    if (job.id != null) {
+      if (seen.has(job.id)) return;
+      seen.add(job.id);
+    }
+    out.push(job);
+  });
+  return out;
+}
+
 function formatDisplaySalary(salary) {
   if (!salary) return 'Competitive';
   
@@ -239,8 +256,11 @@ function JobCard({ job, onPress, isTop }) {
 
 function AnimatedCard({ job, isTop, stackIndex, translateX, translateY, onPress, swipedCardId, indexOffset }) {
   const animStyle = useAnimatedStyle(() => {
-    // If this card just completed swiping out, hide it instantly before React removes it
-    if (swipedCardId && swipedCardId.value === job.id) {
+    // If this card just completed swiping out, hide it instantly before React removes it.
+    // NOTE: the `!= null` guards matter — without them a job with a missing `id` would make
+    // `undefined === undefined` true and blank out EVERY card in the deck.
+    const swipedId = swipedCardId ? swipedCardId.value : null;
+    if (swipedId != null && job.id != null && swipedId === job.id) {
       return { opacity: 0, transform: [] };
     }
 
@@ -297,11 +317,16 @@ function AnimatedCard({ job, isTop, stackIndex, translateX, translateY, onPress,
     return { opacity };
   });
 
+  // NOTE: do NOT set `renderToHardwareTextureAndroid` / `shouldRasterizeIOS` on the wrapper
+  // below. This subtree contains a gradient, async-loading images and children that animate
+  // their own opacity (the stamps + StaggeredList tags). Snapshotting it into a cached GPU
+  // texture makes the card render as an empty frame as soon as the swipe transform starts
+  // compositing, and that texture is never invalidated afterwards — which is exactly the
+  // "all the elements on the card disappear after the first swipe" bug. React Native's docs
+  // say these flags should only be toggled on for the duration of an animation, never left on.
   return (
     <Animated.View
       style={[styles.cardWrapper, animStyle, { zIndex: 100 - stackIndex }]}
-      renderToHardwareTextureAndroid={true}
-      shouldRasterizeIOS={true}
     >
       <JobCard job={job} onPress={isTop ? onPress : undefined} isTop={isTop} />
       {isTop && (
@@ -732,7 +757,7 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
   useEffect(() => {
     if (serverJobs.length > 0 && !queueInitialized.current) {
       queueInitialized.current = true;
-      setJobs(serverJobs);
+      setJobs(dedupeJobs(serverJobs));
     }
   }, [serverJobs]);
 
@@ -849,7 +874,7 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
   const handleReload = async () => {
     const { data } = await refetch();
     if (data) {
-      setJobs(data);
+      setJobs(dedupeJobs(data));
     }
   };
 
@@ -1038,12 +1063,14 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
 
   const { userName } = route.params || { userName: 'Professional' };
 
-  // Sync indexOffset back to 0 when React finishes updating the jobs array.
-  const topJobId = jobs[0]?.id;
+  // Clear the swipe hand-off flags once React has committed the new deck.
+  // Keyed on the `jobs` array identity (not just the top id) so the reset ALWAYS runs after
+  // every deck change — keying it on `jobs[0]?.id` meant that if the id was missing or
+  // repeated, the effect never re-ran and the cards stayed frozen at opacity 0 forever.
   useEffect(() => {
     swipedCardId.value = null;
     indexOffset.value = 0;
-  }, [topJobId, swipedCardId, indexOffset]);
+  }, [jobs, swipedCardId, indexOffset]);
 
   // Called after a successful swipe animation completes
   const handleSwipeComplete = useCallback((direction, passedX, passedY, velocityX, velocityY) => {
@@ -1056,8 +1083,10 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
     const currentY = passedY ?? translateY.value;
 
     // Instantly freeze the visual state on the UI thread
-    // This perfectly bridges the gap before React re-renders the deck
-    swipedCardId.value = topJob.id;
+    // This perfectly bridges the gap before React re-renders the deck.
+    // Only arm the freeze when we have a real id to match against, otherwise the
+    // "hide the swiped card" check in AnimatedCard would match every card in the deck.
+    swipedCardId.value = topJob.id != null ? topJob.id : null;
     indexOffset.value = 1;
     translateX.value = 0;
     translateY.value = 0;
@@ -1256,9 +1285,12 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
     return jobs.slice(0, renderCount).reverse().map((job, idx) => {
       const stackIndex = renderCount - 1 - idx;
       const isTop = stackIndex === 0;
+      // Fall back to a positional key so a job with a missing id can never collide
+      // with another card (colliding keys are one of the ways cards render blank).
+      const cardKey = job.id != null ? job.id : `card-${stackIndex}`;
       const card = (
         <AnimatedCard
-          key={job.id}
+          key={cardKey}
           job={job}
           isTop={isTop}
           stackIndex={stackIndex}
@@ -1271,7 +1303,7 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
       );
 
       return isTop ? (
-        <GestureDetector key={job.id} gesture={gesture}>
+        <GestureDetector key={cardKey} gesture={gesture}>
           {card}
         </GestureDetector>
       ) : card;
