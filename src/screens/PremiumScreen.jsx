@@ -9,6 +9,7 @@ import { usePostHog } from 'posthog-react-native';
 import BounceButton from '../components/BounceButton';
 import { supabase } from '../lib/supabase';
 import { PaystackProvider, usePaystack } from 'react-native-paystack-webview';
+import { useQueryClient } from '@tanstack/react-query';
 const { width: SCREEN_W } = Dimensions.get('window');
 
 const TIERS = [
@@ -31,13 +32,23 @@ const TIERS = [
     subtitle: 'Flexible subscription',
     badge: null,
     planCode: 'PLN_svuxon2v4wvjvh4'
+  },
+  {
+    id: 'weekly',
+    title: 'Weekly',
+    price: '₦800/week',
+    rawPrice: 800,
+    originalPrice: null,
+    subtitle: 'Pay as you go, cancel anytime',
+    badge: null,
+    planCode: 'PLN_2b3p6cdtgqtf7zq'
   }
 ];
 
 const FEATURES = [
-  { id: 1, icon: 'zap', title: 'Better AI Matchmaking', desc: 'Get matched with top roles faster with advanced algorithms.' },
-  { id: 2, icon: 'sliders', title: 'Customisation Features', desc: 'Personalise your profile to stand out from the crowd.' },
-  { id: 3, icon: 'trending-up', title: 'Priority Placement', desc: 'Push your profile higher in the employer dashboard.' },
+  { id: 1, icon: 'zap', title: 'Unlimited Swipes', desc: 'No daily limits — browse and apply to as many roles as you want, every day.' },
+  { id: 2, icon: 'award', title: 'Better AI Matchmaking', desc: 'Get matched with top roles faster using our advanced AI scoring system.' },
+  { id: 3, icon: 'trending-up', title: 'Priority Placement', desc: 'Push your profile higher in the employer dashboard and get noticed first.' },
 ];
 
 export default function PremiumScreen({ navigation }) {
@@ -60,6 +71,7 @@ function PremiumScreenContent({ navigation }) {
   const [selectedTier, setSelectedTier] = useState('yearly');
   const [animDirection, setAnimDirection] = useState(1);
   const [userEmail, setUserEmail] = useState('');
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -125,7 +137,7 @@ function PremiumScreenContent({ navigation }) {
   );
 
   const renderPlansContent = () => (
-    <Animated.View entering={enteringAnim} exiting={exitingAnim} style={[styles.stepContainer, { paddingBottom: 180 }]}>
+    <Animated.View entering={enteringAnim} exiting={exitingAnim} style={[styles.stepContainer, { paddingBottom: 220 }]}>
       <Animated.View entering={FadeInUp.duration(400).springify()}>
         <Text style={[styles.title, { color: colors.text.primary }]}>
           Choose Your Plan
@@ -209,7 +221,7 @@ function PremiumScreenContent({ navigation }) {
       email: userEmail || 'user@example.com',
       amount: selectedData.rawPrice, // The library internally multiplies this by 100
       reference,
-      plan: selectedData.planCode, // Link it to your Paystack subscription plan
+      ...(selectedData.planCode ? { plan: selectedData.planCode } : {}),
       metadata: {
         plan_id: selectedTier,
         custom_fields: [
@@ -223,12 +235,16 @@ function PremiumScreenContent({ navigation }) {
         try {
           // Verify payment server-side via Supabase Edge Function
           const { data, error } = await supabase.functions.invoke('verify-paystack', {
-            body: { reference: res.transactionRef || res.reference || reference },
+            body: { 
+              reference: res.transactionRef || res.reference || reference,
+              plan_id: selectedTier
+            },
           });
 
           if (error) throw error;
 
           if (data?.verified) {
+            queryClient.invalidateQueries({ queryKey: ['user_subscription'] });
             posthog.capture('premium_purchased_success', {
               plan_id: selectedTier,
               amount: selectedData.rawPrice,

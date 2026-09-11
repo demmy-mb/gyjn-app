@@ -11,6 +11,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue, useAnimatedStyle, withSpring, withTiming,
   interpolate, runOnJS, withRepeat, withSequence, interpolateColor,
+  SlideInDown, SlideInUp, SlideInLeft, SlideInRight, FadeIn,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -40,42 +41,9 @@ const TAG_COLORS = {
   default:  { bg: 'rgba(0, 0, 0, 0.05)',       text: '#555555' },
 };
 
-// Local match score calculation since we removed expensive LLM match from backend
-const calculateMatchScore = (profile, job) => {
-  let score = 50; // base score
-
-  // Category match
-  if (profile.category && job.category) {
-    if (profile.category.toLowerCase() === job.category.toLowerCase()) {
-      score += 25;
-    }
-  }
-
-  // Job type match
-  if (profile.jobType && job.job_type) {
-    if (profile.jobType.toLowerCase() === job.job_type.toLowerCase()) {
-      score += 10;
-    }
-  }
-
-  // Skills match (if tags exist on job and skills on profile)
-  if (profile.skills && profile.skills.length > 0 && job.tags && job.tags.length > 0) {
-    const profileSkills = profile.skills.map(s => 
-      (typeof s === 'string' ? s : s.label || '').toLowerCase()
-    );
-    let matchCount = 0;
-    job.tags.forEach(t => {
-      const tagLabel = (typeof t === 'string' ? t : t.label || '').toLowerCase();
-      if (profileSkills.some(ps => ps.includes(tagLabel) || tagLabel.includes(ps))) {
-        matchCount++;
-      }
-    });
-    score += Math.min(15, matchCount * 3);
-  }
-
-  // Cap at 98% to leave room for "perfect" matches if we ever add them
-  return Math.min(98, score);
-};
+// Match scores are now computed server-side by Gemini AI after a right-swipe.
+// They are revealed on the Applied screen, not shown on swipe cards.
+const FREE_DAILY_SWIPE_LIMIT = 15;
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const CARD_W = SCREEN_W - 48;
@@ -84,6 +52,22 @@ const RISE_DISTANCE = 24;
 const CARD_HEIGHT = 420;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+// Deduplicate jobs by id to prevent two cards sharing a React key,
+// which causes both to be hidden when one is swiped.
+function dedupeJobs(list) {
+  const seen = new Set();
+  const out = [];
+  (list || []).forEach((job) => {
+    if (!job) return;
+    if (job.id != null) {
+      if (seen.has(job.id)) return;
+      seen.add(job.id);
+    }
+    out.push(job);
+  });
+  return out;
+}
 
 function formatDisplaySalary(salary) {
   if (!salary) return 'Competitive';
@@ -236,11 +220,25 @@ function JobCard({ job, onPress, isTop }) {
 
 // ─── AnimatedCard ───────────────────────────────────────────────────────────
 // Each card gets its own useAnimatedStyle hook for smooth deck animations.
+const getEntranceAnimation = (index, isInitialRender) => {
+  if (!isInitialRender) return undefined;
+  const delay = index * 100;
+  switch (index % 4) {
+    case 0: return SlideInDown.springify().damping(35).stiffness(120).mass(0.8).delay(delay);
+    case 1: return SlideInLeft.springify().damping(35).stiffness(120).mass(0.8).delay(delay);
+    case 2: return SlideInRight.springify().damping(35).stiffness(120).mass(0.8).delay(delay);
+    case 3: return SlideInUp.springify().damping(35).stiffness(120).mass(0.8).delay(delay);
+    default: return FadeIn.delay(delay);
+  }
+};
 
-function AnimatedCard({ job, isTop, stackIndex, translateX, translateY, onPress, swipedCardId, indexOffset }) {
+function AnimatedCard({ job, isTop, stackIndex, translateX, translateY, onPress, swipedCardId, indexOffset, isInitialRender }) {
   const animStyle = useAnimatedStyle(() => {
-    // If this card just completed swiping out, hide it instantly before React removes it
-    if (swipedCardId && swipedCardId.value === job.id) {
+    // If this card just completed swiping out, hide it instantly before React removes it.
+    // NOTE: the != null guards matter — without them a job with a missing id would make
+    // `undefined === undefined` true and blank out EVERY card in the deck.
+    const swipedId = swipedCardId ? swipedCardId.value : null;
+    if (swipedId != null && job.id != null && swipedId === job.id) {
       return { opacity: 0, transform: [] };
     }
 
@@ -299,24 +297,33 @@ function AnimatedCard({ job, isTop, stackIndex, translateX, translateY, onPress,
 
   return (
     <Animated.View
-      style={[styles.cardWrapper, animStyle, { zIndex: 100 - stackIndex }]}
-      renderToHardwareTextureAndroid={true}
-      shouldRasterizeIOS={true}
+      entering={getEntranceAnimation(stackIndex, isInitialRender)}
+      style={[styles.cardWrapper, { zIndex: 100 - stackIndex }]}
     >
-      <JobCard job={job} onPress={isTop ? onPress : undefined} isTop={isTop} />
-      {isTop && (
-        <>
-          <Animated.View style={[styles.stampOverlay, styles.stampLike, likeStyle]}>
-            <Text style={styles.stampTextLike}>APPLY</Text>
-          </Animated.View>
-          <Animated.View style={[styles.stampOverlay, styles.stampNope, nopeStyle]}>
-            <Text style={styles.stampTextNope}>SKIP</Text>
-          </Animated.View>
-          <Animated.View style={[styles.stampOverlay, styles.stampSave, saveStyle]}>
-            <Text style={styles.stampTextSave}>SAVE</Text>
-          </Animated.View>
-        </>
-      )}
+      <Animated.View
+        style={animStyle}
+        // NOTE: do NOT set renderToHardwareTextureAndroid / shouldRasterizeIOS here.
+        // This subtree contains a gradient, async-loading images and children that animate
+        // their own opacity (the stamps + StaggeredList tags). Snapshotting it into a cached
+        // GPU texture makes the card render as an empty frame as soon as the swipe transform
+        // starts compositing, and that texture is never invalidated afterwards — which is
+        // exactly the "elements disappear after first swipe" bug.
+      >
+        <JobCard job={job} onPress={isTop ? onPress : undefined} isTop={isTop} />
+        {isTop && (
+          <>
+            <Animated.View style={[styles.stampOverlay, styles.stampLike, likeStyle]}>
+              <Text style={styles.stampTextLike}>APPLY</Text>
+            </Animated.View>
+            <Animated.View style={[styles.stampOverlay, styles.stampNope, nopeStyle]}>
+              <Text style={styles.stampTextNope}>SKIP</Text>
+            </Animated.View>
+            <Animated.View style={[styles.stampOverlay, styles.stampSave, saveStyle]}>
+              <Text style={styles.stampTextSave}>SAVE</Text>
+            </Animated.View>
+          </>
+        )}
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -385,7 +392,7 @@ function ExpandedDetailCard({ job, isVisible, onClose, onApply }) {
   const cardStyle = useAnimatedStyle(() => {
     const width = interpolate(expandAnim.value, [0, 1], [CARD_W, SCREEN_W], 'clamp');
     const height = interpolate(expandAnim.value, [0, 1], [CARD_HEIGHT, SCREEN_H], 'clamp');
-    const borderRadius = interpolate(expandAnim.value, [0, 1], [36, 40], 'clamp'); // Keep native-style modal curve
+    const borderRadius = interpolate(expandAnim.value, [0, 1], [36, 40], 'clamp');
     const top = interpolate(expandAnim.value, [0, 1], [cardTopInitial, Math.max(insets.top, 24) + 16], 'clamp');
     const left = interpolate(expandAnim.value, [0, 1], [cardLeftInitial, 0], 'clamp');
 
@@ -464,23 +471,18 @@ function ExpandedDetailCard({ job, isVisible, onClose, onApply }) {
   const gesture = Gesture.Pan()
     .onUpdate((e) => {
       if (e.translationY > 0) {
-        // As they pull down, interactively reverse the expansion animation!
-        // The top of the card will perfectly follow their finger.
         const progress = Math.max(0, 1 - (e.translationY / cardTopInitial));
         expandAnim.value = progress;
-        dragY.value = 0; // We don't need additional translation since expandAnim handles it
+        dragY.value = 0;
       } else {
-        // Slight rubber-band if they pull up
         dragY.value = e.translationY * 0.1;
       }
     })
     .onEnd((e) => {
       dragY.value = withSpring(0, { damping: 25, stiffness: 250 });
       if (e.translationY > 100 || e.velocityY > 500) {
-        // Close it - the useEffect will fluidly continue the spring down to 0 from its current progress!
         runOnJS(onClose)();
       } else {
-        // Snap back to fully expanded
         expandAnim.value = withSpring(1, { damping: 28, stiffness: 280, mass: 0.8 });
       }
     });
@@ -631,13 +633,75 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
   const [detailJob, setDetailJob] = useState(null);
   const queueInitialized = useRef(false);
 
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
+
+  const onMatchLandRef = useRef(onMatchLand);
+  onMatchLandRef.current = onMatchLand;
+
+  const posthogRef = useRef(posthog);
+  posthogRef.current = posthog;
+
+  const routeParamsRef = useRef(route.params);
+  routeParamsRef.current = route.params;
+
+  const userTypeRef = useRef(userType);
+  userTypeRef.current = userType;
+
   const [activeNotification, setActiveNotification] = useState(null);
   const [cachedNotification, setCachedNotification] = useState(null);
+
+  // ── Swipe quota ────────────────────────────────────────────────────────────
+  const [remainingSwipes, setRemainingSwipes] = useState(FREE_DAILY_SWIPE_LIMIT);
+  const [isPremium, setIsPremium] = useState(false);
+  const [quotaLoaded, setQuotaLoaded] = useState(false);
+
+  useEffect(() => {
+    const loadQuota = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { setQuotaLoaded(true); return; }
+
+        // Check premium status
+        const now = new Date().toISOString();
+        const { data: sub } = await supabase
+          .from('subscriptions')
+          .select('status, current_period_end')
+          .eq('user_id', user.id)
+          .eq('status', 'active')
+          .gt('current_period_end', now)
+          .single();
+
+        if (sub) {
+          setIsPremium(true);
+          setRemainingSwipes(null); // unlimited
+          setQuotaLoaded(true);
+          return;
+        }
+
+        // Fetch today's quota
+        const today = new Date().toISOString().split('T')[0];
+        const { data: quota } = await supabase
+          .from('swipe_quotas')
+          .select('count')
+          .eq('user_id', user.id)
+          .eq('date', today)
+          .single();
+
+        const used = quota?.count ?? 0;
+        setRemainingSwipes(Math.max(0, FREE_DAILY_SWIPE_LIMIT - used));
+      } catch (err) {
+        console.warn('[Quota] Failed to load quota:', err);
+      } finally {
+        setQuotaLoaded(true);
+      }
+    };
+    loadQuota();
+  }, []);
 
   const progress = useSharedValue(0);
 
   // ── Initial job fetch (cached by React Query) ──────────────────────────────
-  // key changes when profile details (like category or skills) are updated, triggering re-fetch.
   const queryKey = [
     'jobs',
     route.params?.userName,
@@ -648,8 +712,9 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
   const { data: serverJobs = [], refetch, isLoading, isFetching } = useQuery({
     queryKey,
     queryFn:  async () => {
-      // Fetch live profile to override route.params if they are empty
       let activeProfile = {};
+      let appliedJobIds = new Set();
+
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
@@ -660,6 +725,15 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
             .eq('id', user.id)
             .single();
           if (data) activeProfile = data;
+
+          // Fetch jobs this user has already applied to so we can exclude them
+          const { data: appliedMatches } = await supabase
+            .from('matches')
+            .select('job_id')
+            .eq('user_id', user.id);
+          if (appliedMatches) {
+            appliedMatches.forEach(m => appliedJobIds.add(m.job_id));
+          }
         }
       } catch (err) {
         console.warn('Failed to load profile for queryFn:', err);
@@ -676,19 +750,12 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
         });
         if (!response.ok) throw new Error('API failed');
         const data = await response.json();
-        
-        // Calculate scores locally since backend no longer sends match %
-        const localScoredJobs = (data.jobs || []).map((job, idx) => ({
-          ...job,
-          isInitialTop: idx === 0,
-          match: calculateMatchScore({
-            category: activeProfile.category || route.params?.category,
-            skills: activeProfile.skills || route.params?.skills || [],
-            jobType: activeProfile.job_type || route.params?.jobType
-          }, job)
-        }));
-        
-        return localScoredJobs;
+
+        // Filter out jobs the user has already applied to
+        const freshJobs = (data.jobs || []).filter(job => !appliedJobIds.has(job.id));
+
+        return freshJobs.map((job, idx) => ({ ...job, isInitialTop: idx === 0 }));
+
       } catch (err) {
         console.warn('API fetch failed, falling back to direct Supabase query:', err.message);
         Sentry.captureException(err);
@@ -705,36 +772,18 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
 
         const { data, error } = await query.order('created_at', { ascending: false });
         if (error) throw new Error(error.message);
-        
-        // Calculate scores locally
-        const localScoredJobs = (data ?? []).map((job, idx) => ({
-          ...job,
-          isInitialTop: idx === 0,
-          match: calculateMatchScore({
-            category: activeProfile.category || route.params?.category,
-            skills: activeProfile.skills || route.params?.skills || [],
-            jobType: activeProfile.job_type || route.params?.jobType
-          }, job)
-        })).sort((a, b) => b.match - a.match);
 
-        // After sorting, re-assign isInitialTop based on final order
-        localScoredJobs.forEach((job, idx) => {
-          job.isInitialTop = idx === 0;
-        });
+        // Filter out jobs the user has already applied to
+        const freshJobs = (data ?? []).filter(job => !appliedJobIds.has(job.id));
 
-        return localScoredJobs;
+        return freshJobs.map((job, idx) => ({ ...job, isInitialTop: idx === 0 }));
+
       }
     },
     staleTime: 5 * 60 * 1000,
   });
 
-  // Seed the swipe queue from query cache exactly once on first load
-  useEffect(() => {
-    if (serverJobs.length > 0 && !queueInitialized.current) {
-      queueInitialized.current = true;
-      setJobs(serverJobs);
-    }
-  }, [serverJobs]);
+  // Seed the swipe queue from query cache exactly once on first load (moved down to use deckLoadTime)
 
   // Realtime notification listener
   useEffect(() => {
@@ -757,7 +806,6 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
                 .single();
               
               if (!error && matchData) {
-                // Check if there is a recent message from the employer (within 8 seconds)
                 const msgs = matchData.messages || [];
                 const employerMsgs = msgs.filter(m => m.sender_type === 'employer');
                 const lastMsg = employerMsgs[employerMsgs.length - 1];
@@ -846,14 +894,31 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
     }
   };
 
+  const [isReloading, setIsReloading] = useState(false);
+  const deckLoadTime = useRef(Date.now());
+
+  // Also update deckLoadTime when initially populating jobs (this was missing earlier)
+  useEffect(() => {
+    if (serverJobs.length > 0 && !queueInitialized.current) {
+      deckLoadTime.current = Date.now();
+      queueInitialized.current = true;
+      setJobs(dedupeJobs(serverJobs));
+    }
+  }, [serverJobs]);
+
   const handleReload = async () => {
+    setIsReloading(true);
+    swipedCardId.value = null;
+    indexOffset.value = 0;
     const { data } = await refetch();
     if (data) {
-      setJobs(data);
+      deckLoadTime.current = Date.now();
+      setJobs(dedupeJobs(data));
     }
+    setIsReloading(false);
   };
 
-  const showLoadingSpinner = isLoading || (isFetching && jobs.length === 0);
+  const showLoadingSpinner = isLoading && !queueInitialized.current;
 
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
@@ -1038,73 +1103,83 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
 
   const { userName } = route.params || { userName: 'Professional' };
 
-  // Sync indexOffset back to 0 when React finishes updating the jobs array.
-  const topJobId = jobs[0]?.id;
+  // Clear the swipe hand-off flags once React has committed the new deck.
+  // Keyed on the `jobs` array identity so the reset ALWAYS runs after
+  // every deck change.
   useEffect(() => {
     swipedCardId.value = null;
     indexOffset.value = 0;
-  }, [topJobId, swipedCardId, indexOffset]);
+  }, [jobs, swipedCardId, indexOffset]);
 
   // Called after a successful swipe animation completes
   const handleSwipeComplete = useCallback((direction, passedX, passedY, velocityX, velocityY) => {
-    // FIX: Look up the job on the JS thread where state is always fresh
-    const topJob = jobs[0]; 
+    const currentJobs = jobsRef.current;
+    const topJob = currentJobs[0]; 
     if (!topJob) return;
 
     // Capture current trajectory before resetting shared values
     const currentX = passedX ?? translateX.value;
     const currentY = passedY ?? translateY.value;
 
-    // Instantly freeze the visual state on the UI thread
-    // This perfectly bridges the gap before React re-renders the deck
-    swipedCardId.value = topJob.id;
+    // Only arm the freeze when we have a real id to match against
+    swipedCardId.value = topJob.id != null ? topJob.id : null;
     indexOffset.value = 1;
     translateX.value = 0;
     translateY.value = 0;
 
-    setJobs(prev => {
-      const remaining = prev.slice(1);
-      return remaining;
-    });
+    setJobs(prev => prev.slice(1));
 
-    // Increment local swipes count
-    const incrementSwipes = async () => {
+    // Decrement quota in Supabase + update local state (skip for premium users)
+    const decrementQuota = async () => {
       try {
-        const count = await AsyncStorage.getItem('seeker_swipes_count');
-        const nextCount = count ? parseInt(count) + 1 : 1;
-        await AsyncStorage.setItem('seeker_swipes_count', nextCount.toString());
+        if (isPremium) return; // premium users have no limit
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const today = new Date().toISOString().split('T')[0];
+        // Upsert: increment count for today (INSERT or UPDATE)
+        await supabase.from('swipe_quotas').upsert(
+          { user_id: user.id, date: today, count: Math.max(0, FREE_DAILY_SWIPE_LIMIT - (remainingSwipes ?? FREE_DAILY_SWIPE_LIMIT)) + 1 },
+          { onConflict: 'user_id,date' }
+        );
+        setRemainingSwipes(prev => (prev === null ? null : Math.max(0, prev - 1)));
       } catch (err) {
-        console.warn('Failed to increment local swipes count:', err);
+        console.warn('[Quota] Failed to decrement quota:', err);
       }
     };
-    incrementSwipes();
+    decrementQuota();
 
     if (direction === 'right') {
       const saveMatch = async () => {
         try {
           const { data: { user } } = await supabase.auth.getUser();
-          let activeProfile = {};
-          if (user) {
-            const tableName = userType === 'employer' ? 'employer_profiles' : 'seeker_profiles';
-            const { data } = await supabase
-              .from(tableName)
-              .select('*')
-              .eq('id', user.id)
-              .single();
-            if (data) activeProfile = data;
+
+          // Guard: don't save an orphaned match if auth isn't available
+          if (!user?.id) {
+            Alert.alert('Not signed in', 'Please sign in to apply for this role.');
+            return;
           }
 
+          let activeProfile = {};
+          const tableName = userTypeRef.current === 'employer' ? 'employer_profiles' : 'seeker_profiles';
+          const { data: profileData } = await supabase
+            .from(tableName)
+            .select('*')
+            .eq('id', user.id)
+            .single();
+          if (profileData) activeProfile = profileData;
+
           const { data, error } = await supabase.from('matches').insert({
-            user_id:             user?.id || null,
+            user_id:             user.id,
             job_id:              topJob.id,
-            candidate_name:      activeProfile.user_name || route.params?.userName || 'Professional',
-            candidate_role:      activeProfile.user_role || route.params?.userRole || '',
-            category:            activeProfile.category || route.params?.category || null,
-            about_me:            activeProfile.about_me || route.params?.aboutMe || null,
-            job_type_preference: activeProfile.job_type || route.params?.jobType || null,
-            skills:              activeProfile.skills || route.params?.skills || [],
-            cv_url:              activeProfile.cv_url || route.params?.cvUrl || null,
-            match_percent:       topJob.match ?? 0,
+            candidate_name:      activeProfile.user_name || routeParamsRef.current?.userName || 'Professional',
+            candidate_role:      activeProfile.user_role || routeParamsRef.current?.userRole || '',
+            category:            activeProfile.category || routeParamsRef.current?.category || null,
+            about_me:            activeProfile.about_me || routeParamsRef.current?.aboutMe || null,
+            job_type_preference: activeProfile.job_type || routeParamsRef.current?.jobType || null,
+            skills:              activeProfile.skills || routeParamsRef.current?.skills || [],
+            cv_url:              activeProfile.cv_url || routeParamsRef.current?.cvUrl || null,
+            match_percent:       0, // AI will compute and overwrite the real score via /api/analyze-match
+
             status:              'Applied',
           })
           .select()
@@ -1117,7 +1192,6 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
             return;
           }
 
-          // Trigger detailed AI analysis in the background immediately
           const triggerAnalysis = async (retries = 2) => {
             for (let attempt = 0; attempt <= retries; attempt++) {
               try {
@@ -1154,96 +1228,102 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
         }
       };
 
-      posthog.capture('job_applied', {
-        job_id: topJob.id,
-        company: topJob.company,
-        role: topJob.role,
-        match_percent: topJob.match,
-        category: topJob.category,
-      });
+      if (posthogRef.current) {
+        posthogRef.current.capture('job_applied', {
+          job_id: topJob.id,
+          company: topJob.company,
+          role: topJob.role,
+          match_percent: topJob.match,
+          category: topJob.category,
+        });
+      }
       saveMatch();
-      if (onMatchLand) onMatchLand(topJob);
+      if (onMatchLandRef.current) onMatchLandRef.current(topJob);
     } else {
-      // direction === 'left' or 'down' — user skipped this job
-      posthog.capture('job_skipped', {
-        job_id: topJob.id,
-        company: topJob.company,
-        role: topJob.role,
-        match_percent: topJob.match,
-        category: topJob.category,
-        direction,
-      });
+      if (posthogRef.current) {
+        posthogRef.current.capture('job_skipped', {
+          job_id: topJob.id,
+          company: topJob.company,
+          role: topJob.role,
+          match_percent: topJob.match,
+          category: topJob.category,
+          direction,
+        });
+      }
     }
-  }, [jobs, route.params, onMatchLand, translateX, translateY, posthog]);
+  }, [translateX, translateY, swipedCardId, indexOffset]);
 
   const hasTriggeredHaptic = useSharedValue(false);
 
-  const gesture = Gesture.Pan()
-    .minDistance(8)
-    .onStart(() => {
-      'worklet';
-      contextX.value = translateX.value;
-      contextY.value = translateY.value;
-    })
-    .onUpdate((e) => {
-      'worklet';
-      translateX.value = contextX.value + e.translationX;
-      translateY.value = contextY.value + e.translationY * 0.65; // Dampen less (0.65 instead of 0.4) so vertical drag feels lighter
+  const gesture = useMemo(() => {
+    return Gesture.Pan()
+      .minDistance(8)
+      .onStart(() => {
+        'worklet';
+        contextX.value = translateX.value;
+        contextY.value = translateY.value;
+      })
+      .onUpdate((e) => {
+        'worklet';
+        translateX.value = contextX.value + e.translationX;
+        translateY.value = contextY.value + e.translationY * 0.65;
 
-      const THRESHOLD = 100;
-      const isOver = Math.abs(translateX.value) > THRESHOLD || translateY.value > THRESHOLD;
-      
-      if (isOver && !hasTriggeredHaptic.value) {
-        runOnJS(haptic.medium)();
-        hasTriggeredHaptic.value = true;
-      } else if (!isOver && hasTriggeredHaptic.value) {
-        hasTriggeredHaptic.value = false;
-      }
-    })
-    .onEnd((e) => {
-      'worklet';
-      const THRESHOLD = 90; // Lowered from 120 to make it require less physical drag distance
-      const VELOCITY_THRESHOLD = 600; // Flick velocity threshold (px/sec) to trigger swipe
-
-      const isDown  = (translateY.value > THRESHOLD || (e.velocityY > VELOCITY_THRESHOLD && translateY.value > 15)) && translateY.value > Math.abs(translateX.value);
-      const isRight = (translateX.value > THRESHOLD || (e.velocityX > VELOCITY_THRESHOLD && translateX.value > 15)) && !isDown;
-      const isLeft  = (translateX.value < -THRESHOLD || (e.velocityX < -VELOCITY_THRESHOLD && translateX.value < -15)) && !isDown;
-
-      if (isRight || isLeft || isDown) {
-        const dir = isDown ? 'down' : isRight ? 'right' : 'left';
+        const THRESHOLD = 100;
+        const isOver = Math.abs(translateX.value) > THRESHOLD || translateY.value > THRESHOLD;
         
-        runOnJS(playSound)('swipe');
-        if (dir === 'right') {
-           runOnJS(playSound)('match');
+        if (isOver && !hasTriggeredHaptic.value) {
+          runOnJS(haptic.medium)();
+          hasTriggeredHaptic.value = true;
+        } else if (!isOver && hasTriggeredHaptic.value) {
+          hasTriggeredHaptic.value = false;
         }
+      })
+      .onEnd((e) => {
+        'worklet';
+        const THRESHOLD = 90;
+        const VELOCITY_THRESHOLD = 600;
 
-        // Handoff to JS immediately so LeavingCard smoothly takes over the trajectory 
-        // without waiting for the animation to end, which removes the stutter/jump!
-        runOnJS(handleSwipeComplete)(dir, translateX.value, translateY.value, e.velocityX, e.velocityY);
-      } else {
-        // Snappier, lighter spring physics to snap card back to center quickly when released
-        translateX.value = withSpring(0, springs.snappy);
-        translateY.value = withSpring(0, springs.snappy);
-      }
-      hasTriggeredHaptic.value = false;
-    });
+        const isDown  = (translateY.value > THRESHOLD || (e.velocityY > VELOCITY_THRESHOLD && translateY.value > 15)) && translateY.value > Math.abs(translateX.value);
+        const isRight = (translateX.value > THRESHOLD || (e.velocityX > VELOCITY_THRESHOLD && translateX.value > 15)) && !isDown;
+        const isLeft  = (translateX.value < -THRESHOLD || (e.velocityX < -VELOCITY_THRESHOLD && translateX.value < -15)) && !isDown;
+
+        if (isRight || isLeft || isDown) {
+          const dir = isDown ? 'down' : isRight ? 'right' : 'left';
+          
+          runOnJS(playSound)('swipe');
+          if (dir === 'right') {
+             runOnJS(playSound)('match');
+          }
+
+          // Handoff to JS immediately so the departing card is frozen at opacity 0
+          // without waiting for the animation to end, removing the stutter/jump.
+          runOnJS(handleSwipeComplete)(dir, translateX.value, translateY.value, e.velocityX, e.velocityY);
+        } else {
+          translateX.value = withSpring(0, springs.snappy);
+          translateY.value = withSpring(0, springs.snappy);
+        }
+        hasTriggeredHaptic.value = false;
+      });
+  }, [handleSwipeComplete, translateX, translateY, contextX, contextY, hasTriggeredHaptic]);
 
   const openDetail = useCallback(() => {
-    if (jobs.length === 0) return;
-    const topJob = jobs[0];
+    const currentJobs = jobsRef.current;
+    if (currentJobs.length === 0) return;
+    const topJob = currentJobs[0];
     setDetailJob(topJob);
     setShowDetail(true);
-    posthog.capture('job_viewed', {
-      job_id: topJob.id,
-      company: topJob.company,
-      role: topJob.role,
-      match_percent: topJob.match,
-      category: topJob.category,
-    });
-  }, [jobs, posthog]);
+    if (posthogRef.current) {
+      posthogRef.current.capture('job_viewed', {
+        job_id: topJob.id,
+        company: topJob.company,
+        role: topJob.role,
+        match_percent: topJob.match,
+        category: topJob.category,
+      });
+    }
+  }, []);
 
   const triggerSwipe = useCallback((dir) => {
-    // For trigger buttons or programmatic swipes
     handleSwipeComplete(dir, 0, 0, 0, 0);
   }, [handleSwipeComplete]);
 
@@ -1253,12 +1333,14 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
 
   const renderCards = () => {
     if (jobs.length === 0) return null;
+    const isInitialRender = Date.now() - deckLoadTime.current < 1500; // true if within 1.5s of reload
     return jobs.slice(0, renderCount).reverse().map((job, idx) => {
       const stackIndex = renderCount - 1 - idx;
       const isTop = stackIndex === 0;
+      const cardKey = job.id != null ? job.id : `card-${stackIndex}`;
       const card = (
         <AnimatedCard
-          key={job.id}
+          key={cardKey}
           job={job}
           isTop={isTop}
           stackIndex={stackIndex}
@@ -1267,11 +1349,12 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
           onPress={openDetail}
           swipedCardId={swipedCardId}
           indexOffset={indexOffset}
+          isInitialRender={isInitialRender}
         />
       );
 
       return isTop ? (
-        <GestureDetector key={job.id} gesture={gesture}>
+        <GestureDetector key={cardKey} gesture={gesture}>
           {card}
         </GestureDetector>
       ) : card;
@@ -1288,6 +1371,36 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
           resizeMode="contain" 
         />
         <Text style={[styles.logo, { color: colors.text.primary }]}>Jinni</Text>
+
+        {/* Swipe quota pill — only shown for free users */}
+        {quotaLoaded && !isPremium && (
+          <View style={{
+            marginLeft: 'auto',
+            marginRight: 48, // Make room for the absolute-positioned menu button
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 5,
+            backgroundColor: remainingSwipes === 0 ? 'rgba(255,71,87,0.10)' : 'rgba(255,107,44,0.10)',
+            borderRadius: 20,
+            paddingHorizontal: 10,
+            paddingVertical: 5,
+            borderWidth: 1,
+            borderColor: remainingSwipes === 0 ? 'rgba(255,71,87,0.25)' : 'rgba(255,107,44,0.20)',
+          }}>
+            <Feather
+              name="zap"
+              size={13}
+              color={remainingSwipes === 0 ? '#FF4757' : colors.brand.orange}
+            />
+            <Text style={{
+              fontSize: 12,
+              fontWeight: '700',
+              color: remainingSwipes === 0 ? '#FF4757' : colors.brand.orange,
+            }}>
+              {remainingSwipes === 0 ? 'No swipes left' : `${remainingSwipes} left`}
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Morphing Liquid-Glass Notification Button */}
@@ -1377,18 +1490,55 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
         {showLoadingSpinner ? (
           <View style={styles.loadingDeck}>
             <LoadingPulse />
-            <Text style={[styles.loadingTitle, { color: colors.text.primary }]}>Summoning jobs...</Text>
-            <Text style={[styles.loadingSubtitle, { color: colors.text.secondary }]}>Evaluating your CV and skills with Gemini AI</Text>
+            <Text style={[styles.loadingTitle, { color: colors.text.primary }]}>{isReloading ? 'Refreshing deck...' : 'Summoning jobs...'}</Text>
+            <Text style={[styles.loadingSubtitle, { color: colors.text.secondary }]}>{isReloading ? 'Finding more matches for you' : 'Evaluating your CV and skills with Gemini AI'}</Text>
           </View>
         ) : jobs.length === 0 ? (
           <View style={styles.emptyDeck}>
-            <Feather name="star" size={72} color={C.orange} style={{ marginBottom: 8 }} />
+            <Feather name="star" size={72} color={C.orange} style={{ marginBottom: 8, alignSelf: 'center' }} />
             <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>Your wish is our command, {userName}!</Text>
             <Text style={[styles.emptySubtitle, { color: colors.text.secondary }]}>But you've seen all roles for now. Check back tomorrow for more magic.</Text>
-            <TouchableOpacity style={styles.reloadBtn} onPress={handleReload}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={styles.reloadBtnText}>Refresh Wishes</Text>
-                <Feather name="refresh-cw" size={14} color="#fff" />
+            <TouchableOpacity style={styles.reloadBtn} onPress={handleReload} disabled={isReloading}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, minWidth: 140 }}>
+                {isReloading ? (
+                  <>
+                    <Text style={styles.reloadBtnText}>Summoning...</Text>
+                    <ActivityIndicator size="small" color="#fff" />
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.reloadBtnText}>Refresh Wishes</Text>
+                    <Feather name="refresh-cw" size={14} color="#fff" />
+                  </>
+                )}
+              </View>
+            </TouchableOpacity>
+          </View>
+        ) : (!isPremium && remainingSwipes === 0) ? (
+          /* ── Quota exceeded: locked deck ── */
+          <View style={styles.emptyDeck}>
+            <View style={{
+              width: 80, height: 80, borderRadius: 40,
+              backgroundColor: 'rgba(255,71,87,0.10)',
+              alignItems: 'center', justifyContent: 'center',
+              marginBottom: 20,
+            }}>
+              <Feather name="lock" size={36} color="#FF4757" />
+            </View>
+            <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>
+              You've used your {FREE_DAILY_SWIPE_LIMIT} swipes today
+            </Text>
+            <Text style={[styles.emptySubtitle, { color: colors.text.secondary, marginBottom: 28 }]}>
+              Your quota resets at midnight. Upgrade to Jinni Premium for unlimited swipes every day.
+            </Text>
+            <TouchableOpacity
+              style={[styles.reloadBtn, { backgroundColor: colors.brand.orange, paddingHorizontal: 28 }]}
+              onPress={() => navigation.navigate('Premium')}
+              activeOpacity={0.85}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Feather name="zap" size={16} color="#fff" />
+                <Text style={styles.reloadBtnText}>Unlock Unlimited Swipes</Text>
               </View>
             </TouchableOpacity>
           </View>

@@ -1,33 +1,40 @@
-name: EAS Update
+name: Deploy EAS Update on Push
 
 on:
   push:
     branches:
-      - main # Triggers the update whenever you push to your main branch
+      - main
+      - master # Added master because your repository's default branch is currently master
 
 jobs:
   update:
-    name: Publish EAS Update
+    name: Run EAS Update
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: npm
+          cache: 'npm'
           cache-dependency-path: package-lock.json
+
+      - name: Setup Expo & EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Setup Expo & EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }} # Reads your Expo secret token from GitHub Secrets
-
       - name: Publish EAS Update
-        run: eas update --branch preview --message "Automated update via GitHub Actions"
+        run: eas update --auto --non-interactive
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL || 'https://bwmeojuvxlufknwvlrbz.supabase.co' }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ3bWVvanV2eGx1Zmtud3ZscmJ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1Mzc2MjgsImV4cCI6MjA5MDExMzYyOH0.E8h-ZNDVGGipPYOjwXJCf0SnPpwm3NxtR0N90EFePFA' }}
+          EXPO_PUBLIC_BACKEND_URL: ${{ secrets.EXPO_PUBLIC_BACKEND_URL || 'https://gyjn-dashboard-fj8u.vercel.app' }}
+
+

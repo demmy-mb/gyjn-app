@@ -4,7 +4,7 @@ import {
   TouchableOpacity, KeyboardAvoidingView, Platform,
   ActivityIndicator, Alert, Modal, StatusBar, Keyboard,
   Animated as RNAnimated, Pressable, Dimensions,
-  LayoutAnimation, UIManager,
+  LayoutAnimation, UIManager, Image,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import Reanimated, { SlideInRight, SlideInLeft, FadeInUp } from 'react-native-reanimated';
@@ -77,6 +77,7 @@ const MessageItem = React.memo(({
   repliedMsg, 
   isLatestOwnMsg, 
   recipientName, 
+  companyLogoUrl,
   lastTapRefs, 
   onEditMessage, 
   onLongPress, 
@@ -85,17 +86,27 @@ const MessageItem = React.memo(({
   renderRightActions,
   swipeableRef
 }) => {
-  if (item.sender_type === 'system') {
+  const { colors, isDark } = useTheme();
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  let effectiveSender = item.sender_type;
+  const isScheduledCall = effectiveSender === 'system' && item.text.includes('Call scheduled');
+  if (isScheduledCall) {
+    effectiveSender = 'employer';
+  }
+
+  if (effectiveSender === 'system') {
     return (
       <Reanimated.View entering={FadeInUp.duration(300)} style={styles.systemMsgRow}>
-        <View style={styles.systemMsgBubble}>
-          <Text style={styles.systemMsgText}>{item.text}</Text>
+        <View style={[styles.systemMsgBubble, { backgroundColor: colors.bg.surface, borderColor: colors.border.light }]}>
+          <Text style={{ fontSize: 16 }}>{item.text.includes('Match') ? '🎉' : '✨'}</Text>
+          <Text style={[styles.systemMsgText, { color: colors.text.primary }]}>{item.text}</Text>
         </View>
       </Reanimated.View>
     );
   }
 
-  const isMine = item.sender_type === userType || (userType === 'seeker' && item.sender_type === 'candidate');
+  const isMine = effectiveSender === userType || (userType === 'seeker' && effectiveSender === 'candidate');
 
   const bubble = (
     <Reanimated.View 
@@ -107,48 +118,110 @@ const MessageItem = React.memo(({
           const now = Date.now();
           const lastTap = lastTapRefs.current[item.id] || 0;
           if (now - lastTap < 300) {
-            if (isMine) {
+            if (isMine && !isScheduledCall) {
               onEditMessage(item);
             }
           }
           lastTapRefs.current[item.id] = now;
         }}
-        onLongPress={(evt) => onLongPress(item, evt)}
+        onLongPress={(evt) => {
+          if (!isScheduledCall) onLongPress(item, evt);
+        }}
         delayLongPress={400}
         style={[styles.msgRow, isMine ? styles.msgRowRight : styles.msgRowLeft]}
       >
-        <View
-          style={[
-            styles.msgBubble,
-            isMine ? styles.msgBubbleRight : styles.msgBubbleLeft,
-          ]}
-        >
-          {repliedMsg && (
-            <View style={[
-              styles.replyQuote,
-              isMine ? styles.replyQuoteMine : styles.replyQuoteTheirs,
-            ]}>
-              <Text style={[styles.replyQuoteSender, isMine && { color: 'rgba(255,255,255,0.8)' }]}>
-                {repliedMsg.sender_type === userType || (userType === 'seeker' && repliedMsg.sender_type === 'candidate') ? 'You' : recipientName}
-              </Text>
-              <Text
-                style={[styles.replyQuoteText, isMine && { color: 'rgba(255,255,255,0.7)' }]}
-                numberOfLines={2}
-              >
-                {repliedMsg.text}
+        {!isMine && (
+          userType === 'seeker' && !logoFailed ? (
+            <Image 
+              source={{ uri: companyLogoUrl || `https://logo.clearbit.com/${recipientName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com` }} 
+              style={{ width: 28, height: 28, borderRadius: 14, marginRight: 8, alignSelf: 'flex-end', backgroundColor: 'rgba(0,0,0,0.05)' }} 
+              onError={() => setLogoFailed(true)}
+            />
+          ) : (
+            <View style={{ width: 28, height: 28, borderRadius: 14, marginRight: 8, alignSelf: 'flex-end', backgroundColor: 'rgba(0,0,0,0.05)', alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 10, fontWeight: '800', color: colors.text.secondary }}>
+                {recipientName.split(' ').map(n => n[0]).slice(0,2).join('').toUpperCase()}
               </Text>
             </View>
-          )}
+          )
+        )}
+        <View
+          style={[
+            isScheduledCall ? {
+              backgroundColor: colors.bg.card,
+              borderRadius: 16,
+              padding: 16,
+              borderWidth: 1,
+              borderColor: colors.border.light,
+              borderBottomRightRadius: isMine ? 4 : 16,
+              borderBottomLeftRadius: isMine ? 16 : 4,
+              width: '86%',
+              shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0.2 : 0.04, shadowRadius: 12, elevation: 2,
+            } : [
+              styles.msgBubble,
+              isMine ? styles.msgBubbleRight : styles.msgBubbleLeft,
+            ]
+          ]}
+        >
+          {isScheduledCall ? (
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,107,44,0.12)', alignItems: 'center', justifyContent: 'center' }}>
+                  <Feather name="calendar" size={20} color={colors.brand.orange} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: colors.text.primary, marginBottom: 4 }}>Upcoming Interview</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Feather name="clock" size={12} color={colors.brand.orange} />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text.secondary }}>30 mins  -  Video Call</Text>
+                  </View>
+                </View>
+              </View>
+              
+              <View style={{ marginTop: 16, backgroundColor: colors.bg.surface, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border.main, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Feather name="check-circle" size={18} color={colors.brand.orange} />
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: colors.text.primary }}>
+                    {item.text.replace('Call scheduled for ', '')}
+                  </Text>
+                </View>
+              </View>
 
-          <Text style={[styles.msgText, isMine ? styles.msgTextRight : styles.msgTextLeft]}>
-            {item.text}
-          </Text>
-          <Text style={[styles.msgTime, isMine ? styles.msgTimeRight : styles.msgTimeLeft]}>
-            {item.is_edited && <Text style={{ fontStyle: 'italic' }}>(edited) </Text>}
-            {new Date(item.created_at).toLocaleTimeString([], {
-              hour: '2-digit', minute: '2-digit',
-            })}
-          </Text>
+              <View style={{ marginTop: 12, backgroundColor: 'rgba(255,107,44,0.12)', borderRadius: 24, paddingVertical: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 }}>
+                <Text style={{ color: colors.brand.orange, fontSize: 14, fontWeight: '800' }}>Confirmed Slot</Text>
+                <Feather name="check" size={16} color={colors.brand.orange} />
+              </View>
+            </View>
+          ) : (
+            <>
+              {repliedMsg && (
+                <View style={[
+                  styles.replyQuote,
+                  isMine ? styles.replyQuoteMine : styles.replyQuoteTheirs,
+                ]}>
+                  <Text style={[styles.replyQuoteSender, isMine && { color: 'rgba(255,255,255,0.8)' }]}>
+                    {repliedMsg.sender_type === userType || (userType === 'seeker' && repliedMsg.sender_type === 'candidate') ? 'You' : recipientName}
+                  </Text>
+                  <Text
+                    style={[styles.replyQuoteText, isMine && { color: 'rgba(255,255,255,0.7)' }]}
+                    numberOfLines={2}
+                  >
+                    {repliedMsg.text}
+                  </Text>
+                </View>
+              )}
+
+              <Text style={[styles.msgText, isMine ? styles.msgTextRight : styles.msgTextLeft]}>
+                {item.text}
+              </Text>
+              <Text style={[styles.msgTime, isMine ? styles.msgTimeRight : styles.msgTimeLeft]}>
+                {item.is_edited && <Text style={{ fontStyle: 'italic' }}>(edited) </Text>}
+                {new Date(item.created_at).toLocaleTimeString([], {
+                  hour: '2-digit', minute: '2-digit',
+                })}
+              </Text>
+            </>
+          )}
         </View>
       </Pressable>
       {isMine && isLatestOwnMsg && (
@@ -213,6 +286,7 @@ export default function ChatScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
+  const [headerLogoFailed, setHeaderLogoFailed] = useState(false);
 
   // Reply state
   const [replyTo, setReplyTo] = useState(null);
@@ -701,6 +775,7 @@ export default function ChatScreen({ route, navigation }) {
         repliedMsg={item.reply_to ? msgMap[item.reply_to] : null}
         isLatestOwnMsg={item.id === latestOwnMsgId}
         recipientName={recipientName}
+        companyLogoUrl={match?.jobs?.logo_url}
         lastTapRefs={lastTapRefs}
         onEditMessage={handleEditMessage}
         onLongPress={handleLongPress}
@@ -710,7 +785,7 @@ export default function ChatScreen({ route, navigation }) {
         swipeableRef={(ref) => { swipeableRefs.current[item.id] = ref; }}
       />
     );
-  }, [userType, msgMap, latestOwnMsgId, recipientName, handleEditMessage, handleLongPress, handleSwipeReply, renderLeftActions, renderRightActions]);
+  }, [userType, msgMap, latestOwnMsgId, recipientName, handleEditMessage, handleLongPress, handleSwipeReply, renderLeftActions, renderRightActions, match?.jobs?.logo_url]);
 
   const GlassBackground = Platform.OS === 'ios' ? BlurView : View;
 
@@ -727,30 +802,60 @@ export default function ChatScreen({ route, navigation }) {
       >
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
-      {/* Top Glass Area: Header + Call Bar */}
+      {/* Top Glass Area: Header + Context Banner */}
       <GlassBackground 
         intensity={isDark ? 30 : 85} 
         tint={isDark ? "dark" : "light"} 
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, backgroundColor: Platform.OS === 'ios' ? (isDark ? 'rgba(0,0,0,0.65)' : 'rgba(255,255,255,0.65)') : colors.bg.card }}
       >
-        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12), paddingLeft: Math.max(insets.left, 24), paddingRight: Math.max(insets.right, 24), backgroundColor: 'transparent', borderBottomWidth: 0 }]}>
-          <BounceButton onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Feather name="arrow-left" size={24} color={colors.text.primary} />
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12), paddingLeft: Math.max(insets.left, 24), paddingRight: Math.max(insets.right, 24), backgroundColor: 'transparent', borderBottomWidth: 0, paddingBottom: 16 }]}>
+          <BounceButton onPress={() => navigation.goBack()} style={[styles.backBtn, { backgroundColor: colors.bg.secondary, width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }]}>
+            <Feather name="chevron-left" size={24} color={colors.text.primary} />
           </BounceButton>
-          <View style={styles.headerInfo}>
-            <Text style={[styles.headerTitle, { color: colors.text.primary }]} numberOfLines={1}>{recipientName}</Text>
-            <Text style={[styles.headerSubtitle, { color: colors.text.secondary }]} numberOfLines={1}>{jobTitle}</Text>
+          <View style={[styles.headerInfo, { alignItems: 'flex-start', paddingLeft: 12 }]}>
+            <Text style={[styles.headerSubtitle, { color: C.orange, textTransform: 'uppercase', fontSize: 11, fontWeight: '800', letterSpacing: 1 }]}>Jinni Chat</Text>
+            <Text style={[styles.headerTitle, { color: colors.text.primary, fontSize: 18, marginTop: 2 }]} numberOfLines={1}>{recipientName}</Text>
           </View>
-          {callDate ? (
-            <BounceButton onPress={() => {
-              Alert.alert('Call Scheduled', `You have a call scheduled for ${displayCallDate}`);
-            }} style={styles.backBtn}>
-              <Feather name="calendar" size={20} color={C.orange} />
-            </BounceButton>
-          ) : (
-            <View style={{ width: 36 }} />
-          )}
+            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.bg.secondary, alignItems: 'center', justifyContent: 'center' }}>
+              {userType === 'seeker' && recipientName && !headerLogoFailed ? (
+                <Image 
+                  source={{ uri: match?.jobs?.logo_url || `https://logo.clearbit.com/${recipientName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com` }} 
+                  style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.05)' }} 
+                  onError={() => setHeaderLogoFailed(true)}
+                />
+              ) : (
+                <Text style={{ fontSize: 18, fontWeight: '800', color: colors.text.primary }}>
+                  {(recipientName || 'U').substring(0, 1).toUpperCase()}
+                </Text>
+              )}
+              {/* Status dot */}
+              <View style={{ position: 'absolute', bottom: -2, right: -2, width: 12, height: 12, borderRadius: 6, backgroundColor: '#00C896', borderWidth: 2, borderColor: colors.bg.card }} />
+            </View>
+        </View>
+
+        {/* Pinned Chat Context Banner */}
+        <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.bg.primary, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: colors.border.light, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 }}>
+              <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,107,44,0.12)', alignItems: 'center', justifyContent: 'center' }}>
+                <Feather name="briefcase" size={16} color={C.orange} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: colors.text.primary }} numberOfLines={1}>{jobTitle}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                  <View style={{ backgroundColor: 'rgba(123,79,233,0.1)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12 }}>
+                    <Text style={{ fontSize: 9, fontWeight: '800', color: '#7B4FE9', textTransform: 'uppercase' }}>{match?.status || 'Active'}</Text>
+                  </View>
+                  <Text style={{ fontSize: 11, color: colors.text.hint }}>Applied just now</Text>
+                </View>
+              </View>
+            </View>
+            <TouchableOpacity style={{ backgroundColor: 'rgba(255,107,44,0.08)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: C.orange }}>View Job</Text>
+              <Feather name="arrow-right" size={12} color={C.orange} />
+            </TouchableOpacity>
+          </View>
         </View>
       </GlassBackground>
 
@@ -836,9 +941,14 @@ export default function ChatScreen({ route, navigation }) {
           onTouchEnd={handleTouchEnd}
           style={[styles.inputBar, { paddingBottom: 16, paddingLeft: Math.max(insets.left, 20), paddingRight: Math.max(insets.right, 20), backgroundColor: Platform.OS === 'ios' ? (isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.7)') : colors.bg.card }]}
         >
+          {/* Attachment Quick Action */}
+          <BounceButton style={[styles.scheduleIconBtn, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light, borderWidth: 1 }]} onPress={() => {}}>
+            <Feather name="plus" size={22} color={colors.text.secondary} />
+          </BounceButton>
+
           {isEmployer && (
             <BounceButton
-              style={[styles.scheduleIconBtn, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}
+              style={[styles.scheduleIconBtn, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light, borderWidth: 1 }]}
               onPress={() => { setTempDate(parseCallDate(callDate)); setShowDatePicker(true); }}
             >
               <Feather name="calendar" size={18} color={colors.text.primary} />
@@ -847,7 +957,7 @@ export default function ChatScreen({ route, navigation }) {
 
           <TextInput
             ref={inputRef}
-            style={[styles.textInput, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light, color: colors.text.primary }]}
+            style={[styles.textInput, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light, borderWidth: 1, color: colors.text.primary, paddingVertical: 12, borderRadius: 24 }]}
             placeholder={editingMsg ? 'Editing message...' : replyTo ? 'Type your reply...' : 'Type your message...'}
             placeholderTextColor={colors.text.hint}
             value={inputText}
@@ -856,12 +966,18 @@ export default function ChatScreen({ route, navigation }) {
             maxHeight={100}
           />
 
+          {/* Jinni Primary Send Button */}
           <BounceButton
             onPress={handleSend}
             disabled={!inputText.trim() || sending}
-            style={[styles.sendBtn, (!inputText.trim() || sending) && styles.sendBtnDisabled]}
+            style={[styles.sendBtn, { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 24, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: C.orange, shadowColor: C.orange, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.28, shadowRadius: 16, elevation: 4 }, (!inputText.trim() || sending) && { backgroundColor: C.peach, shadowOpacity: 0 }]}
           >
-            {sending ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.sendBtnText}>Send</Text>}
+            {sending ? <ActivityIndicator color="#fff" size="small" /> : (
+              <>
+                <Text style={[styles.sendBtnText, { fontSize: 14 }]}>Send</Text>
+                <Feather name="send" size={14} color="#fff" />
+              </>
+            )}
           </BounceButton>
         </GlassBackground>
       </RNAnimated.View>
@@ -968,20 +1084,20 @@ const styles = StyleSheet.create({
   msgRowLeft: { justifyContent: 'flex-start' },
   msgRowRight: { justifyContent: 'flex-end' },
   msgBubble: {
-    maxWidth: '75%', borderRadius: 20,
-    paddingHorizontal: 16, paddingVertical: 10, gap: 4,
-    shadowColor: C.night, shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.02, shadowRadius: 4, elevation: 1,
+    maxWidth: '86%', borderRadius: 20,
+    paddingHorizontal: 16, paddingVertical: 12, gap: 4,
+    shadowColor: C.night, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04, shadowRadius: 12, elevation: 2,
   },
   msgBubbleLeft: {
-    backgroundColor: '#fff', borderTopLeftRadius: 4,
-    borderWidth: 1, borderColor: 'rgba(0,0,0,0.03)',
+    backgroundColor: '#fff', borderBottomLeftRadius: 4,
+    borderWidth: 1, borderColor: 'rgba(0,0,0,0.04)',
   },
-  msgBubbleRight: { backgroundColor: C.orange, borderTopRightRadius: 4 },
-  msgText: { fontSize: 14, lineHeight: 20 },
+  msgBubbleRight: { backgroundColor: C.orange, borderBottomRightRadius: 4 },
+  msgText: { fontSize: 15, lineHeight: 22 },
   msgTextLeft: { color: C.night },
   msgTextRight: { color: '#fff' },
-  msgTime: { fontSize: 8, alignSelf: 'flex-end', marginTop: 2 },
+  msgTime: { fontSize: 10, alignSelf: 'flex-end', marginTop: 4 },
   msgTimeLeft: { color: C.hint },
   msgTimeRight: { color: 'rgba(255,255,255,0.7)' },
 
@@ -998,13 +1114,16 @@ const styles = StyleSheet.create({
   replyQuoteText: { fontSize: 13, color: C.muted, lineHeight: 18 },
 
   // System messages
-  systemMsgRow: { flexDirection: 'row', justifyContent: 'center', width: '100%', marginVertical: 4 },
+  systemMsgRow: { flexDirection: 'row', justifyContent: 'center', width: '100%', marginVertical: 8 },
   systemMsgBubble: {
-    backgroundColor: 'rgba(26,26,46,0.05)', borderRadius: 12,
-    paddingHorizontal: 14, paddingVertical: 6,
-    borderWidth: 1, borderColor: 'rgba(26,26,46,0.03)',
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.lightBg, borderRadius: 24,
+    paddingHorizontal: 16, paddingVertical: 8,
+    borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)',
+    shadowColor: C.night, shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03, shadowRadius: 4, elevation: 1,
   },
-  systemMsgText: { fontSize: 11, fontWeight: '700', color: C.muted, textAlign: 'center' },
+  systemMsgText: { fontSize: 13, fontWeight: '700', color: C.night, textAlign: 'center' },
 
   // Swipe action
   swipeAction: { width: 60, justifyContent: 'center', alignItems: 'center', borderRadius: 16 },

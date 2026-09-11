@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase';
 import { C } from '../lib/theme';
 import BounceButton from '../components/BounceButton';
 import { useTheme } from '../lib/ThemeProvider';
+import { useSubscription } from '../hooks/useSubscription';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -49,6 +50,7 @@ export default function ProfileScreen({ navigation, route }) {
   const [userEmail, setUserEmail] = useState('');
   const [localSwipes, setLocalSwipes] = useState(0);
   const [localMatches, setLocalMatches] = useState(0);
+  const { isPremium, subscription } = useSubscription();
 
   const loadProfileAndStats = useCallback(async () => {
     try {
@@ -131,8 +133,58 @@ export default function ProfileScreen({ navigation, route }) {
             <Text style={styles.avatarInitials}>
               {profile.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
             </Text>
+            {isPremium && (
+              <LinearGradient
+                colors={['#FFB042', '#FF6B2C']}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={{
+                  position: 'absolute',
+                  bottom: -4,
+                  right: -4,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderWidth: 2,
+                  borderColor: '#1E1815',
+                  shadowColor: '#FF6B2C',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.5,
+                  shadowRadius: 4,
+                  elevation: 5
+                }}>
+                <Feather name="star" size={14} color="#FFF" />
+              </LinearGradient>
+            )}
           </View>
-          <Text style={styles.pName}>{profile.name}</Text>
+          <Text style={[styles.pName, { marginTop: 4 }]}>{profile.name}</Text>
+          {isPremium && (
+            <LinearGradient
+              colors={['#FFD166', '#FF9B3E']}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                alignSelf: 'center',
+                marginTop: 2,
+                gap: 4,
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 20,
+                shadowColor: '#FF9B3E',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.55,
+                shadowRadius: 6,
+                elevation: 4,
+              }}
+            >
+              <Feather name="zap" size={10} color="#1E1815" />
+              <Text style={{ color: '#1E1815', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 }}>
+                PREMIUM
+              </Text>
+            </LinearGradient>
+          )}
           <Text style={styles.pRole}>{profile.role} {isEmployer ? (profile.companyName ? `at ${profile.companyName}` : '') : `· ${profile.category}`}</Text>
           {profile.about ? (
             <Text style={styles.pBio} numberOfLines={2}>{profile.about}</Text>

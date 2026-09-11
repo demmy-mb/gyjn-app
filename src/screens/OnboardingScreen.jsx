@@ -20,7 +20,7 @@ import { usePostHog } from 'posthog-react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { useTheme } from '../lib/ThemeProvider';
 import { springs, timings } from '../lib/animations';
 import StaggeredList from '../components/StaggeredList';
@@ -202,8 +202,6 @@ export default function OnboardingScreen({ navigation, route }) {
   };
 
   const fetchProfileDirect = async (table, userId, accessToken) => {
-    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || !supabaseAnonKey) return null;
     const url = `${supabaseUrl}/rest/v1/${table}?id=eq.${encodeURIComponent(userId)}&select=*&limit=1`;
     try {

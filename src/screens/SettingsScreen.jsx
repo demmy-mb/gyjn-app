@@ -23,6 +23,7 @@ import AnimatedInput from '../components/AnimatedInput';
 import SkeletonPulse from '../components/SkeletonPulse';
 import { useTheme } from '../lib/ThemeProvider';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSubscription } from '../hooks/useSubscription';
 
 // Base64 to ArrayBuffer decoder for React Native uploads
 const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -114,6 +115,50 @@ export default function SettingsScreen({ navigation, route }) {
   });
 
   const [saving, setSaving] = useState(false);
+  const { subscription, isPremium, isCancelled, cancelSubscription, isCancelling, refetch: refetchSub } = useSubscription();
+  const [showSubModal, setShowSubModal] = useState(false);
+  const subTranslateY = useSharedValue(SCREEN_H);
+
+  const closeSubModal = useCallback(() => {
+    subTranslateY.value = withTiming(SCREEN_H, { duration: 250 }, (finished) => {
+      if (finished) {
+        runOnJS(setShowSubModal)(false);
+      }
+    });
+  }, [subTranslateY]);
+
+  useEffect(() => {
+    if (showSubModal) {
+      subTranslateY.value = SCREEN_H;
+      subTranslateY.value = withTiming(0, { duration: 200 });
+    }
+  }, [showSubModal, subTranslateY]);
+
+  const subBgStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(subTranslateY.value, [0, SCREEN_H * 0.5], [1, 0], 'clamp');
+    return { opacity };
+  });
+
+  const subSheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: subTranslateY.value }],
+  }));
+
+  const subPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 5,
+    onPanResponderMove: (_, gestureState) => {
+      if (gestureState.dy > 0) {
+        subTranslateY.value = gestureState.dy;
+      }
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      if (gestureState.dy > 120 || gestureState.vy > 0.5) {
+        closeSubModal();
+      } else {
+        subTranslateY.value = withTiming(0, { duration: 250 });
+      }
+    }
+  }), [subTranslateY, closeSubModal]);
 
   // Edit Profile Modal state
   const [editing, setEditing] = useState(false);
@@ -623,23 +668,58 @@ export default function SettingsScreen({ navigation, route }) {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         
-        {/* Premium Upgrade */}
+        {/* Premium / Subscription Management */}
         <View style={styles.section}>
-          <BounceButton 
-            style={[styles.settingRow, { backgroundColor: colors.brand.orange, borderColor: colors.brand.orange, paddingVertical: 14 }]}
-            onPress={() => navigation.navigate('Premium')}
-          >
-            <View style={styles.settingLeft}>
-              <View style={[styles.iconBox, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <Feather name="star" size={20} color="#FFF" />
+          {isPremium ? (
+            <BounceButton 
+              style={[
+                styles.settingRow, 
+                { 
+                  backgroundColor: isDark ? 'rgba(255,107,44,0.12)' : '#FFF6F0', 
+                  borderColor: colors.brand.orange, 
+                  borderWidth: 1.5,
+                  paddingVertical: 14 
+                }
+              ]}
+              onPress={() => setShowSubModal(true)}
+            >
+              <View style={styles.settingLeft}>
+                <View style={[styles.iconBox, { backgroundColor: colors.brand.orange }]}>
+                  <Feather name="award" size={20} color="#FFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ color: colors.brand.orange, fontSize: 16, fontWeight: '800' }}>Jinni Premium</Text>
+                    <View style={{ backgroundColor: isCancelled ? '#EF4444' : '#10B981', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                      <Text style={{ color: '#FFF', fontSize: 10, fontWeight: '800' }}>
+                        {isCancelled ? 'CANCELLED' : 'ACTIVE'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={{ color: colors.text.secondary, fontSize: 13, marginTop: 2 }}>
+                    {subscription?.plan_name || 'Premium Member'} • Tap to manage
+                  </Text>
+                </View>
               </View>
-              <View>
-                <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '700' }}>Jinni Premium</Text>
-                <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, marginTop: 2 }}>Upgrade your experience</Text>
+              <Feather name="chevron-right" size={20} color={colors.brand.orange} />
+            </BounceButton>
+          ) : (
+            <BounceButton 
+              style={[styles.settingRow, { backgroundColor: colors.brand.orange, borderColor: colors.brand.orange, paddingVertical: 14 }]}
+              onPress={() => navigation.navigate('Premium')}
+            >
+              <View style={styles.settingLeft}>
+                <View style={[styles.iconBox, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                  <Feather name="star" size={20} color="#FFF" />
+                </View>
+                <View>
+                  <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '700' }}>Jinni Premium</Text>
+                  <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, marginTop: 2 }}>Upgrade your experience</Text>
+                </View>
               </View>
-            </View>
-            <Feather name="chevron-right" size={20} color="#FFF" />
-          </BounceButton>
+              <Feather name="chevron-right" size={20} color="#FFF" />
+            </BounceButton>
+          )}
         </View>
 
         {/* Profile Settings */}
@@ -1095,6 +1175,166 @@ export default function SettingsScreen({ navigation, route }) {
             </ScrollView>
           </Animated.View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Manage Subscription Modal ── */}
+      <Modal visible={showSubModal} transparent animationType="slide" statusBarTranslucent={true}>
+        <View style={[styles.sheetBg, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeSubModal} />
+          <View style={[styles.sheet, { backgroundColor: colors.bg.elevated, maxHeight: SCREEN_H * 0.9 }]}>
+            <View style={styles.dragZone}>
+              <View style={[styles.sheetHandle, { backgroundColor: colors.border.medium }]} />
+            </View>
+
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={closeSubModal}>
+                <Feather name="x" size={24} color={colors.text.primary} />
+              </TouchableOpacity>
+              <Text style={[styles.modalTitle, { color: colors.text.primary }]}>Manage Subscription</Text>
+              <View style={{ width: 24 }} />
+            </View>
+
+            <ScrollView contentContainerStyle={{ paddingBottom: 40, gap: 18 }} showsVerticalScrollIndicator={false}>
+              {/* Plan Card */}
+              <LinearGradient
+                colors={isDark ? ['#2D1F16', '#1E1815'] : ['#FFF7ED', '#FFEDD5']}
+                style={{
+                  borderRadius: 20,
+                  padding: 20,
+                  borderWidth: 1.5,
+                  borderColor: colors.brand.orange,
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: colors.brand.orange, alignItems: 'center', justifyContent: 'center' }}>
+                      <Feather name="award" size={22} color="#FFF" />
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: 18, fontWeight: '800', color: colors.text.primary }}>
+                        {subscription?.plan_name || 'Jinni Premium'}
+                      </Text>
+                      <Text style={{ fontSize: 13, color: colors.text.secondary, marginTop: 2 }}>
+                        {subscription?.amount ? `₦${subscription.amount.toLocaleString()} / ${subscription.plan_id || 'month'}` : 'Active Plan'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{
+                    backgroundColor: isCancelled ? '#EF4444' : '#10B981',
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 8
+                  }}>
+                    <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '800' }}>
+                      {isCancelled ? 'CANCELLED' : 'ACTIVE'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={{ height: 1, backgroundColor: colors.border.light, marginVertical: 14 }} />
+
+                {/* Expiry / Renewal date */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 13, color: colors.text.secondary }}>
+                    {isCancelled ? 'Access ends on:' : 'Renews on:'}
+                  </Text>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: colors.text.primary }}>
+                    {subscription?.current_period_end 
+                      ? new Date(subscription.current_period_end).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                      : 'Active'}
+                  </Text>
+                </View>
+              </LinearGradient>
+
+              {/* Features Included */}
+              <View style={{ backgroundColor: colors.bg.card, borderRadius: 18, padding: 18, borderWidth: 1, borderColor: colors.border.light }}>
+                <Text style={{ fontSize: 14, fontWeight: '800', color: colors.text.primary, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Included With Your Plan
+                </Text>
+
+                <View style={{ gap: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Feather name="zap" size={16} color={colors.brand.orange} />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text.primary }}>Top Priority Matching Algorithm</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Feather name="trending-up" size={16} color={colors.brand.orange} />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text.primary }}>Priority Recruiter Placement</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Feather name="message-circle" size={16} color={colors.brand.orange} />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text.primary }}>Direct Recruiter Messaging</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <Feather name="sliders" size={16} color={colors.brand.orange} />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text.primary }}>Custom Profile Styling & Badges</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Actions */}
+              <View style={{ gap: 10, marginTop: 10 }}>
+                <BounceButton
+                  style={{
+                    backgroundColor: colors.brand.orange,
+                    borderRadius: 16,
+                    paddingVertical: 15,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onPress={() => {
+                    setShowSubModal(false);
+                    navigation.navigate('Premium');
+                  }}
+                >
+                  <Text style={{ color: '#FFF', fontSize: 15, fontWeight: '700' }}>Change Plan / Upgrade</Text>
+                </BounceButton>
+
+                {!isCancelled && (
+                  <TouchableOpacity
+                    style={{
+                      borderWidth: 1.5,
+                      borderColor: '#EF4444',
+                      borderRadius: 16,
+                      paddingVertical: 14,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                    }}
+                    disabled={isCancelling}
+                    onPress={() => {
+                      Alert.alert(
+                        'Cancel Subscription?',
+                        'Are you sure you want to cancel your recurring subscription? You will still keep your premium benefits until the end of the current billing cycle.',
+                        [
+                          { text: 'Keep Subscription', style: 'cancel' },
+                          {
+                            text: 'Yes, Cancel',
+                            style: 'destructive',
+                            onPress: async () => {
+                              try {
+                                await cancelSubscription();
+                                Alert.alert('Subscription Cancelled', 'Your subscription has been cancelled. You will retain access until the end of your billing cycle.');
+                              } catch (err) {
+                                Alert.alert('Cancellation Error', err.message || 'Could not cancel subscription. Please try again.');
+                              }
+                            }
+                          }
+                        ]
+                      );
+                    }}
+                  >
+                    {isCancelling ? (
+                      <ActivityIndicator size="small" color="#EF4444" />
+                    ) : (
+                      <Text style={{ color: '#EF4444', fontSize: 14, fontWeight: '700' }}>Cancel Subscription</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );

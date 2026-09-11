@@ -1,6 +1,7 @@
 import { startVerification } from '@didit-protocol/sdk-react-native';
 
-export const diditApiKey = process.env.EXPO_PUBLIC_DIDIT_API_KEY;
+const DEFAULT_DIDIT_API_KEY = 'g5WCT-Yij7d_4O3QdWkityiukVrx7jkVAo7xgUPawyWk';
+export const diditApiKey = process.env.EXPO_PUBLIC_DIDIT_API_KEY || DEFAULT_DIDIT_API_KEY;
 
 /**
  * Helper to fetch a session token and start the Didit verification flow.

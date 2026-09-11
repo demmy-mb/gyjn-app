@@ -25,19 +25,19 @@ import {
 
 export const springs = {
   /** Quick, responsive — button presses, tab switches */
-  snappy: { damping: 15, stiffness: 300, mass: 0.8 },
+  snappy: { damping: 22, stiffness: 280, mass: 0.8 },
 
   /** Smooth, natural — card transitions, layout shifts */
-  gentle: { damping: 20, stiffness: 170, mass: 1 },
+  gentle: { damping: 24, stiffness: 160, mass: 1 },
 
-  /** Playful, energetic — success celebrations, match animation */
-  bouncy: { damping: 10, stiffness: 400, mass: 0.6 },
+  /** Lively but controlled — success celebrations, match animation */
+  bouncy: { damping: 16, stiffness: 340, mass: 0.7 },
 
   /** Weighted, deliberate — bottom sheets, modals */
-  heavy: { damping: 26, stiffness: 240, mass: 0.4 },
+  heavy: { damping: 28, stiffness: 220, mass: 0.5 },
 
-  /** Overshoots slightly — pull-to-refresh, rubber-band */
-  elastic: { damping: 8, stiffness: 200, mass: 1.2 },
+  /** Slight overshoot — pull-to-refresh, rubber-band */
+  elastic: { damping: 14, stiffness: 180, mass: 1.1 },
 };
 
 // ─── Timing Presets ──────────────────────────────────────────────────────────

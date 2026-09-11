@@ -10,7 +10,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { makeRedirectUri } from 'expo-auth-session';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { C } from '../lib/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Sentry from '@sentry/react-native';
@@ -95,11 +95,8 @@ export default function AuthScreen({ navigation, route }) {
   const isNavigating = React.useRef(false);
 
   const fetchProfileDirect = async (table, userId, accessToken) => {
-    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
-
     if (!supabaseUrl || !supabaseAnonKey) {
-      throw new Error('[Jinni] Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY');
+      throw new Error('[Jinni] Missing Supabase configuration');
     }
 
     const url = `${supabaseUrl}/rest/v1/${table}?id=eq.${encodeURIComponent(userId)}&select=*&limit=1`;
