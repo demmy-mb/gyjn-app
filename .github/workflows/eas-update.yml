@@ -3,7 +3,7 @@ name: EAS Update
 on:
   push:
     branches:
-      - main # Triggers the update whenever you push to your main branch
+      - master # Triggers the update whenever you push to your master branch
 
 jobs:
   update:
