@@ -677,8 +677,12 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
         if (!response.ok) throw new Error('API failed');
         const data = await response.json();
         
-        // Calculate scores locally since backend no longer sends match %
-        const localScoredJobs = (data.jobs || []).map((job, idx) => ({
+        // Handle both { jobs: [...] } and plain array responses from the API
+        const jobs = data.jobs || data || [];
+        if (!Array.isArray(jobs) || jobs.length === 0) {
+          throw new Error('API returned no jobs — falling back to Supabase');
+        }
+        const localScoredJobs = jobs.map((job, idx) => ({
           ...job,
           isInitialTop: idx === 0,
           match: calculateMatchScore({
@@ -693,17 +697,42 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
         console.warn('API fetch failed, falling back to direct Supabase query:', err.message);
         Sentry.captureException(err);
         
+        // Accept multiple common status values to avoid filtering to 0 results
         let query = supabase
           .from('jobs')
           .select('*')
-          .eq('status', 'Open');
+          .in('status', ['Open', 'open', 'OPEN', 'Active', 'active', 'ACTIVE', 'Published', 'published']);
           
         const targetCategory = activeProfile.category || route.params?.category;
         if (targetCategory) {
-          query = query.eq('category', targetCategory);
+          query = query.ilike('category', targetCategory);
         }
 
         const { data, error } = await query.order('created_at', { ascending: false });
+
+        // If category-filtered query returned nothing, retry without category filter so users always see jobs
+        if (!error && (!data || data.length === 0) && targetCategory) {
+          console.warn('[SwipeScreen] No jobs for category "' + targetCategory + '", fetching all open jobs as fallback');
+          const { data: allData, error: allError } = await supabase
+            .from('jobs')
+            .select('*')
+            .in('status', ['Open', 'open', 'OPEN', 'Active', 'active', 'ACTIVE', 'Published', 'published'])
+            .order('created_at', { ascending: false });
+          if (allError) throw new Error(allError.message);
+          
+          const allScoredJobs = (allData ?? []).map((job, idx) => ({
+            ...job,
+            isInitialTop: idx === 0,
+            match: calculateMatchScore({
+              category: activeProfile.category || route.params?.category,
+              skills: activeProfile.skills || route.params?.skills || [],
+              jobType: activeProfile.job_type || route.params?.jobType
+            }, job)
+          })).sort((a, b) => b.match - a.match);
+          allScoredJobs.forEach((job, idx) => { job.isInitialTop = idx === 0; });
+          return allScoredJobs;
+        }
+
         if (error) throw new Error(error.message);
         
         // Calculate scores locally
@@ -728,9 +757,9 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Seed the swipe queue from query cache exactly once on first load
+  // Seed the swipe queue from query cache on first load OR after a reload when deck is empty
   useEffect(() => {
-    if (serverJobs.length > 0 && !queueInitialized.current) {
+    if (serverJobs.length > 0 && (!queueInitialized.current || jobs.length === 0)) {
       queueInitialized.current = true;
       setJobs(serverJobs);
     }
