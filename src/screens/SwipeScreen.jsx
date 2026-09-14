@@ -750,40 +750,88 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
         });
         if (!response.ok) throw new Error('API failed');
         const data = await response.json();
+        // Handle both { jobs: [...] } and plain array responses from the API
+        const jobs = data.jobs || data || [];
+        if (!Array.isArray(jobs) || jobs.length === 0) {
+          throw new Error('API returned no jobs — falling back to Supabase');
+        }
 
         // Filter out jobs the user has already applied to
-        const freshJobs = (data.jobs || []).filter(job => !appliedJobIds.has(job.id));
+        const freshJobs = jobs.filter(job => !appliedJobIds.has(job.id));
 
-        return freshJobs.map((job, idx) => ({ ...job, isInitialTop: idx === 0 }));
-
+        const localScoredJobs = freshJobs.map((job, idx) => ({
+          ...job,
+          isInitialTop: idx === 0,
+          match: calculateMatchScore({
+            category: activeProfile.category || route.params?.category,
+            skills: activeProfile.skills || route.params?.skills || [],
+            jobType: activeProfile.job_type || route.params?.jobType
+          }, job)
+        }));
+        
+        return localScoredJobs;
       } catch (err) {
         console.warn('API fetch failed, falling back to direct Supabase query:', err.message);
         Sentry.captureException(err);
         
+        // Accept multiple common status values to avoid filtering to 0 results
         let query = supabase
           .from('jobs')
           .select('*')
-          .eq('status', 'Open');
+          .in('status', ['Open', 'open', 'OPEN', 'Active', 'active', 'ACTIVE', 'Published', 'published']);
           
         const targetCategory = activeProfile.category || route.params?.category;
         if (targetCategory) {
-          query = query.eq('category', targetCategory);
+          query = query.ilike('category', targetCategory);
         }
 
-        const { data, error } = await query.order('created_at', { ascending: false });
-        if (error) throw new Error(error.message);
+        let { data, error } = await query.order('created_at', { ascending: false });
+
+        // If category-filtered query returned nothing, retry without category filter so users always see jobs
+        if (!error && (!data || data.length === 0) && targetCategory) {
+          console.warn('[SwipeScreen] No jobs for category "' + targetCategory + '", fetching all open jobs as fallback');
+          const { data: allData, error: allError } = await supabase
+            .from('jobs')
+            .select('*')
+            .in('status', ['Open', 'open', 'OPEN', 'Active', 'active', 'ACTIVE', 'Published', 'published'])
+            .order('created_at', { ascending: false });
+          if (allError) throw new Error(allError.message);
+          data = allData;
+        } else if (error) {
+          throw new Error(error.message);
+        }
 
         // Filter out jobs the user has already applied to
         const freshJobs = (data ?? []).filter(job => !appliedJobIds.has(job.id));
+        
+        // Calculate scores locally
+        const localScoredJobs = freshJobs.map((job, idx) => ({
+          ...job,
+          match: calculateMatchScore({
+            category: activeProfile.category || route.params?.category,
+            skills: activeProfile.skills || route.params?.skills || [],
+            jobType: activeProfile.job_type || route.params?.jobType
+          }, job)
+        })).sort((a, b) => b.match - a.match);
 
-        return freshJobs.map((job, idx) => ({ ...job, isInitialTop: idx === 0 }));
+        // After sorting, re-assign isInitialTop based on final order
+        localScoredJobs.forEach((job, idx) => {
+          job.isInitialTop = idx === 0;
+        });
 
+        return localScoredJobs;
       }
     },
     staleTime: 5 * 60 * 1000,
   });
 
-  // Seed the swipe queue from query cache exactly once on first load (moved down to use deckLoadTime)
+  // Seed the swipe queue from query cache on first load OR after a reload when deck is empty
+  useEffect(() => {
+    if (serverJobs.length > 0 && (!queueInitialized.current || jobs.length === 0)) {
+      queueInitialized.current = true;
+      setJobs(serverJobs);
+    }
+  }, [serverJobs]);
 
   // Realtime notification listener
   useEffect(() => {
