@@ -47,10 +47,42 @@ function StreamText({ text, style }) {
   return <Animated.Text entering={FadeIn.duration(400)} style={style}>{displayedText}</Animated.Text>;
 }
 
+// Fallback match score calculation in case backend sets match_percent to 0
+const calculateMatchScore = (profile, job) => {
+  if (!job) return 50;
+  let score = 50;
+
+  if (profile.category && job.category && profile.category.toLowerCase() === job.category.toLowerCase()) {
+    score += 25;
+  }
+
+  const pJobType = profile.jobType || profile.job_type_preference;
+  if (pJobType && job.job_type && pJobType.toLowerCase() === job.job_type.toLowerCase()) {
+    score += 10;
+  }
+
+  if (profile.skills && profile.skills.length > 0 && job.tags && job.tags.length > 0) {
+    const profileSkills = profile.skills.map(s => (typeof s === 'string' ? s : s.label || '').toLowerCase());
+    let matchCount = 0;
+    job.tags.forEach(t => {
+      const tagLabel = (typeof t === 'string' ? t : t.label || '').toLowerCase();
+      if (profileSkills.some(ps => ps.includes(tagLabel) || tagLabel.includes(ps))) matchCount++;
+    });
+    score += Math.min(15, matchCount * 3);
+  }
+
+  return Math.min(98, score);
+};
+
 const MatchCard = React.memo(function MatchCard({ item, isNew, onPress, onChatPress, userType }) {
   const { colors: tc } = useTheme();
   const s = STATUS_COLORS[item.status] || STATUS_COLORS.Applied;
   const canChat = item.status === 'Interviewing' || item.status === 'Hired';
+
+  // Calculate fallback match score if the backend erroneously set it to 0
+  const displayMatchPercent = item.match_percent && item.match_percent !== 0 
+    ? item.match_percent 
+    : calculateMatchScore(item, item.jobs);
 
   // Calculate unread badge state
   const otherSenderType = userType === 'employer' ? 'seeker' : 'employer';
@@ -83,12 +115,12 @@ const MatchCard = React.memo(function MatchCard({ item, isNew, onPress, onChatPr
           )
         )}
         {/* Match Percentage Badge */}
-        {item.match_percent != null && (
+        {displayMatchPercent != null && (
           <View style={{
             position: 'absolute',
             bottom: -4,
             right: -6,
-            backgroundColor: item.match_percent >= 80 ? '#00C896' : item.match_percent >= 50 ? '#FF9A62' : '#FF4B4B',
+            backgroundColor: displayMatchPercent >= 80 ? '#00C896' : displayMatchPercent >= 50 ? '#FF9A62' : '#FF4B4B',
             borderRadius: 8,
             paddingHorizontal: 5,
             paddingVertical: 2,
@@ -97,14 +129,20 @@ const MatchCard = React.memo(function MatchCard({ item, isNew, onPress, onChatPr
             zIndex: 10,
             minWidth: 32,
             alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.1,
+            shadowRadius: 2,
           }}>
             <Text style={{ 
+              color: '#FFF',
               fontSize: 9, 
-              fontWeight: '900', 
+              fontWeight: '800',
+              fontFamily: 'Inter-Black',
               color: '#FFF',
               letterSpacing: -0.3,
             }}>
-              {Math.round(item.match_percent)}%
+              {Math.round(displayMatchPercent)}%
             </Text>
           </View>
         )}
@@ -707,9 +745,11 @@ export default function MatchesScreen({ route, navigation }) {
                         <View style={{ backgroundColor: colors.bg.secondary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: colors.border.light }}>
                           <Text style={{ fontSize: 10, fontWeight: '700', color: colors.text.secondary }}>Applied for: {selectedJob.jobs?.role}</Text>
                         </View>
-                        {selectedJob.match_percent != null && (
+                        {selectedJob != null && (
                           <View style={{ backgroundColor: '#FFF0E8', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: 'rgba(255,107,44,0.2)', marginLeft: 8 }}>
-                            <Text style={{ fontSize: 10, fontWeight: '800', color: C.orange }}>{Math.round(selectedJob.match_percent)}% Match</Text>
+                            <Text style={{ fontSize: 10, fontWeight: '800', color: C.orange }}>
+                              {Math.round(selectedJob.match_percent && selectedJob.match_percent !== 0 ? selectedJob.match_percent : calculateMatchScore(selectedJob, selectedJob.jobs))}% Match
+                            </Text>
                           </View>
                         )}
                       </View>
@@ -883,8 +923,12 @@ export default function MatchesScreen({ route, navigation }) {
                   {/* Tags */}
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     <View style={[styles.detailPill, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}><Text style={[styles.detailPillText, { color: colors.text.secondary }]}>{selectedJob.status || 'Applied'}</Text></View>
-                    {selectedJob.match_percent != null && (
-                      <View style={[styles.detailPill, { backgroundColor: '#FFF0E8', borderColor: 'rgba(255,107,44,0.2)' }]}><Text style={[styles.detailPillText, { color: C.orange, fontWeight: '800' }]}>{Math.round(selectedJob.match_percent)}% Match</Text></View>
+                    {selectedJob != null && (
+                      <View style={[styles.detailPill, { backgroundColor: '#FFF0E8', borderColor: 'rgba(255,107,44,0.2)' }]}>
+                        <Text style={[styles.detailPillText, { color: C.orange, fontWeight: '800' }]}>
+                          {Math.round(selectedJob.match_percent && selectedJob.match_percent !== 0 ? selectedJob.match_percent : calculateMatchScore(selectedJob, selectedJob.jobs))}% Match
+                        </Text>
+                      </View>
                     )}
                     {selectedJob.jobs?.job_type && <View style={[styles.detailPill, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}><Text style={[styles.detailPillText, { color: colors.text.secondary }]}>{selectedJob.jobs?.job_type}</Text></View>}
                     {selectedJob.jobs?.salary && <View style={[styles.detailPill, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}><Text style={[styles.detailPillText, { color: colors.text.secondary }]}>{selectedJob.jobs?.salary}</Text></View>}
