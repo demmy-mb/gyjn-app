@@ -1243,6 +1243,17 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
                     continue;
                   }
                 } else {
+                  const result = await analyzeRes.json();
+                  if (result.success) {
+                    await supabase.from('matches').update({
+                      match_percent: result.finalScore,
+                      ai_summary: result.aiResult.ai_summary,
+                      ai_opinion: result.aiResult.ai_opinion,
+                      candidate_role: result.aiResult.candidate_role,
+                      skills: result.aiResult.skills,
+                      match_breakdown: result.aiResult.match_breakdown
+                    }).eq('match_id', data.match_id);
+                  }
                   console.log('[analyzeMatch] Success for match:', data.match_id);
                   return;
                 }

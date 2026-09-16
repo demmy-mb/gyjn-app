@@ -561,6 +561,7 @@ export default function MatchesScreen({ route, navigation }) {
             about_me: selectedJob.about_me,
             job_type_preference: selectedJob.job_type_preference,
             skills: selectedJob.skills,
+            category: selectedJob.category,
           }
         })
       });
@@ -575,8 +576,20 @@ export default function MatchesScreen({ route, navigation }) {
           ai_opinion: result.aiResult.ai_opinion,
           candidate_role: result.aiResult.candidate_role || selectedJob.candidate_role,
           skills: result.aiResult.skills || selectedJob.skills,
+          match_percent: result.finalScore,
         };
         setSelectedJob(updated);
+        
+        // Ensure the DB is updated, bypassing backend RLS limitations
+        await supabase.from('matches').update({
+          match_percent: result.finalScore,
+          ai_summary: result.aiResult.ai_summary,
+          ai_opinion: result.aiResult.ai_opinion,
+          candidate_role: result.aiResult.candidate_role,
+          skills: result.aiResult.skills,
+          match_breakdown: result.aiResult.match_breakdown
+        }).eq('match_id', selectedJob.match_id);
+        
         refetch();
       }
     } catch (err) {
