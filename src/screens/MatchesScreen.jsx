@@ -737,13 +737,7 @@ export default function MatchesScreen({ route, navigation }) {
                         <View style={{ backgroundColor: colors.bg.secondary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: colors.border.light }}>
                           <Text style={{ fontSize: 10, fontWeight: '700', color: colors.text.secondary }}>Applied for: {selectedJob.jobs?.role}</Text>
                         </View>
-                        {selectedJob != null && selectedJob.match_percent && selectedJob.match_percent !== 0 ? (
-                          <View style={{ backgroundColor: '#FFF0E8', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: 'rgba(255,107,44,0.2)', marginLeft: 8 }}>
-                            <Text style={{ fontSize: 10, fontWeight: '800', color: C.orange }}>
-                              {Math.round(selectedJob.match_percent)}% Match
-                            </Text>
-                          </View>
-                        ) : null}
+
                       </View>
                     </View>
                   </View>
