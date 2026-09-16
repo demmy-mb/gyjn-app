@@ -110,26 +110,7 @@ const MatchCard = React.memo(function MatchCard({ item, isNew, onPress, onChatPr
               )}
             </View>
             
-            {(() => {
-              const displayMatchPercent = item.match_percent && item.match_percent !== 0 
-                ? item.match_percent 
-                : null;
-                
-              return displayMatchPercent != null && (
-                <View style={[
-                  styles.matchBadge,
-                  {
-                    backgroundColor: displayMatchPercent >= 80 ? '#00C896' : displayMatchPercent >= 50 ? '#FF9A62' : '#FF4B4B',
-                    borderColor: tc.bg.card,
-                    bottom: -4, right: -4,
-                  }
-                ]}>
-                  <Text style={[styles.matchBadgeText, { fontSize: 9 }]}>
-                    {Math.round(displayMatchPercent)}%
-                  </Text>
-                </View>
-              );
-            })()}
+            {/* Match score badge removed entirely from mobile app */}
           </View>
 
           <View style={{ flex: 1 }}>
@@ -538,67 +519,7 @@ export default function MatchesScreen({ route, navigation }) {
   }, [refetch]);
 
   const [selectedJob, setSelectedJob] = useState(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState(null);
 
-  const generateAiRecommendation = async (force = false) => {
-    if (!selectedJob || analyzing) return;
-    setAnalyzing(true);
-    setAnalysisError(null);
-
-    try {
-      const backendUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://gyjn-dashboard.vercel.app';
-      const response = await fetch(`${backendUrl}/api/analyze-match`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          record: {
-            match_id: selectedJob.match_id,
-            job_id: selectedJob.jobs?.id,
-            cv_url: selectedJob.cv_url,
-            candidate_name: selectedJob.candidate_name,
-            candidate_role: selectedJob.candidate_role,
-            about_me: selectedJob.about_me,
-            job_type_preference: selectedJob.job_type_preference,
-            skills: selectedJob.skills,
-            category: selectedJob.category,
-          }
-        })
-      });
-
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Failed to analyze candidate match.');
-
-      if (result.success && result.aiResult) {
-        const updated = {
-          ...selectedJob,
-          ai_summary: result.aiResult.ai_summary,
-          ai_opinion: result.aiResult.ai_opinion,
-          candidate_role: result.aiResult.candidate_role || selectedJob.candidate_role,
-          skills: result.aiResult.skills || selectedJob.skills,
-          match_percent: result.finalScore,
-        };
-        setSelectedJob(updated);
-        
-        // Ensure the DB is updated, bypassing backend RLS limitations
-        await supabase.from('matches').update({
-          match_percent: result.finalScore,
-          ai_summary: result.aiResult.ai_summary,
-          ai_opinion: result.aiResult.ai_opinion,
-          candidate_role: result.aiResult.candidate_role,
-          skills: result.aiResult.skills,
-          match_breakdown: result.aiResult.match_breakdown
-        }).eq('match_id', selectedJob.match_id);
-        
-        refetch();
-      }
-    } catch (err) {
-      console.warn('[AI Recommendation] Error:', err);
-      setAnalysisError(err.message || 'An error occurred during analysis.');
-    } finally {
-      setAnalyzing(false);
-    }
-  };
   const sheetRef = useRef(null);
   const snapPoints = useMemo(() => ['70%', '90%'], []);
 
@@ -827,62 +748,7 @@ export default function MatchesScreen({ route, navigation }) {
                     </View>
                   </View>
 
-                  {/* AI Recruiter Insights */}
-                  <View style={{ backgroundColor: colors.bg.card, borderRadius: 16, borderWidth: 1, borderColor: colors.border.light, padding: 16, position: 'relative' }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                      <Text style={{ fontSize: 13, fontWeight: '800', color: colors.brand.orange, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                        AI Recruiter Insights
-                      </Text>
-                      {selectedJob.ai_summary && !analyzing && (
-                        <TouchableOpacity onPress={() => generateAiRecommendation(true)}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                            <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text.hint }}>Regenerate</Text>
-                            <Feather name="refresh-cw" size={11} color={colors.text.hint} />
-                          </View>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                    
-                    {analyzing ? (
-                      <View style={{ gap: 8 }}>
-                        <View style={{ height: 12, backgroundColor: '#F0F0F0', borderRadius: 4, width: '80%' }} />
-                        <View style={{ height: 12, backgroundColor: '#F0F0F0', borderRadius: 4, width: '95%' }} />
-                        <View style={{ height: 12, backgroundColor: '#F0F0F0', borderRadius: 4, width: '60%' }} />
-                        <View style={{ height: 40, backgroundColor: '#F0F0F0', borderRadius: 8, marginTop: 8 }} />
-                      </View>
-                    ) : analysisError ? (
-                      <View style={{ backgroundColor: 'rgba(239, 68, 68, 0.05)', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(239, 68, 68, 0.15)' }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Feather name="alert-triangle" size={14} color="#EF4444" />
-                          <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: '600' }}>{analysisError}</Text>
-                        </View>
-                        <TouchableOpacity onPress={() => generateAiRecommendation(true)} style={{ marginTop: 8, alignSelf: 'flex-start' }}>
-                          <Text style={{ color: C.orange, fontSize: 11, fontWeight: '800' }}>Try Again</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : selectedJob.ai_summary ? (
-                      <View style={{ gap: 12 }}>
-                        <View>
-                          <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text.secondary, marginBottom: 4 }}>Profile & CV Summary</Text>
-                          <StreamText style={{ fontSize: 14, color: colors.text.primary, lineHeight: 20 }} text={selectedJob.ai_summary} />
-                        </View>
-                        <View style={{ backgroundColor: colors.bg.secondary, borderRadius: 10, padding: 12, borderLeftWidth: 3, borderLeftColor: colors.brand.orange }}>
-                          <Text style={{ fontSize: 11, fontWeight: '700', color: colors.text.primary, marginBottom: 2 }}>Recruiter's Take</Text>
-                          <StreamText style={{ fontSize: 13, color: colors.text.secondary, lineHeight: 18, fontWeight: '500' }} text={selectedJob.ai_opinion} />
-                        </View>
-                      </View>
-                    ) : (
-                      <View style={{ alignItems: 'center', paddingVertical: 16, borderWidth: 1.5, borderColor: colors.border.light, borderStyle: 'dashed', borderRadius: 12 }}>
-                        <Text style={{ fontSize: 12, color: colors.text.secondary, marginBottom: 10 }}>No AI evaluation available yet.</Text>
-                        <TouchableOpacity 
-                          style={{ backgroundColor: colors.brand.orange, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}
-                          onPress={() => generateAiRecommendation(true)}
-                        >
-                          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>Generate Insights</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
+
 
                   {/* About */}
                   {selectedJob.about_me ? (
@@ -994,13 +860,7 @@ export default function MatchesScreen({ route, navigation }) {
                   {/* Tags */}
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     <View style={[styles.detailPill, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}><Text style={[styles.detailPillText, { color: colors.text.secondary }]}>{selectedJob.status || 'Applied'}</Text></View>
-                    {selectedJob != null && selectedJob.match_percent && selectedJob.match_percent !== 0 ? (
-                      <View style={[styles.detailPill, { backgroundColor: '#FFF0E8', borderColor: 'rgba(255,107,44,0.2)' }]}>
-                        <Text style={[styles.detailPillText, { color: C.orange, fontWeight: '800' }]}>
-                          {Math.round(selectedJob.match_percent)}% Match
-                        </Text>
-                      </View>
-                    ) : null}
+
                     {selectedJob.jobs?.job_type && <View style={[styles.detailPill, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}><Text style={[styles.detailPillText, { color: colors.text.secondary }]}>{selectedJob.jobs?.job_type}</Text></View>}
                     {selectedJob.jobs?.salary && <View style={[styles.detailPill, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}><Text style={[styles.detailPillText, { color: colors.text.secondary }]}>{selectedJob.jobs?.salary}</Text></View>}
                     {selectedJob.jobs?.category && <View style={[styles.detailPill, { backgroundColor: colors.bg.secondary, borderColor: colors.border.light }]}><Text style={[styles.detailPillText, { color: colors.text.secondary }]}>{selectedJob.jobs?.category}</Text></View>}

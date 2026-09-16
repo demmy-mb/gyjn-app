@@ -1226,47 +1226,7 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
             return;
           }
 
-          const triggerAnalysis = async (retries = 2) => {
-            for (let attempt = 0; attempt <= retries; attempt++) {
-              try {
-                const analyzeRes = await fetch(`${getBackendUrl()}/api/analyze-match`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ record: data }),
-                });
-                if (!analyzeRes.ok) {
-                  const errBody = await analyzeRes.text();
-                  console.warn(`[analyzeMatch] Attempt ${attempt + 1} failed (${analyzeRes.status}):`, errBody);
-                  Sentry.captureException(new Error(`[analyzeMatch] HTTP ${analyzeRes.status}: ${errBody}`));
-                  if (attempt < retries) {
-                    await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
-                    continue;
-                  }
-                } else {
-                  const result = await analyzeRes.json();
-                  if (result.success) {
-                    await supabase.from('matches').update({
-                      match_percent: result.finalScore,
-                      ai_summary: result.aiResult.ai_summary,
-                      ai_opinion: result.aiResult.ai_opinion,
-                      candidate_role: result.aiResult.candidate_role,
-                      skills: result.aiResult.skills,
-                      match_breakdown: result.aiResult.match_breakdown
-                    }).eq('match_id', data.match_id);
-                  }
-                  console.log('[analyzeMatch] Success for match:', data.match_id);
-                  return;
-                }
-              } catch (err) {
-                console.warn(`[analyzeMatch] Attempt ${attempt + 1} network error:`, err);
-                Sentry.captureException(err);
-                if (attempt < retries) {
-                  await new Promise(r => setTimeout(r, (attempt + 1) * 2000));
-                }
-              }
-            }
-          };
-          triggerAnalysis();
+
         } catch (err) {
           console.warn('Failed to save match to database:', err);
           Sentry.captureException(err);
