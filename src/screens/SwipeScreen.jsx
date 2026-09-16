@@ -121,6 +121,7 @@ const getNotifStyle = (type) => {
 
 // AnimatedTag handles colors via theme directly
 
+
 // ─── JobCard (pure renderer) ────────────────────────────────────────────────
 
 function JobCard({ job, onPress, isTop }) {
@@ -759,17 +760,12 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
         // Filter out jobs the user has already applied to
         const freshJobs = jobs.filter(job => !appliedJobIds.has(job.id));
 
-        const localScoredJobs = freshJobs.map((job, idx) => ({
+        const processedJobs = freshJobs.map((job, idx) => ({
           ...job,
-          isInitialTop: idx === 0,
-          match: calculateMatchScore({
-            category: activeProfile.category || route.params?.category,
-            skills: activeProfile.skills || route.params?.skills || [],
-            jobType: activeProfile.job_type || route.params?.jobType
-          }, job)
+          isInitialTop: idx === 0
         }));
         
-        return localScoredJobs;
+        return processedJobs;
       } catch (err) {
         console.warn('API fetch failed, falling back to direct Supabase query:', err.message);
         Sentry.captureException(err);
@@ -804,22 +800,12 @@ export default function SwipeScreen({ route, navigation, onMatchLand }) {
         // Filter out jobs the user has already applied to
         const freshJobs = (data ?? []).filter(job => !appliedJobIds.has(job.id));
         
-        // Calculate scores locally
-        const localScoredJobs = freshJobs.map((job, idx) => ({
+        const processedJobs = freshJobs.map((job, idx) => ({
           ...job,
-          match: calculateMatchScore({
-            category: activeProfile.category || route.params?.category,
-            skills: activeProfile.skills || route.params?.skills || [],
-            jobType: activeProfile.job_type || route.params?.jobType
-          }, job)
-        })).sort((a, b) => b.match - a.match);
+          isInitialTop: idx === 0
+        }));
 
-        // After sorting, re-assign isInitialTop based on final order
-        localScoredJobs.forEach((job, idx) => {
-          job.isInitialTop = idx === 0;
-        });
-
-        return localScoredJobs;
+        return processedJobs;
       }
     },
     staleTime: 5 * 60 * 1000,
